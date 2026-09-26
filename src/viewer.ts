@@ -5,7 +5,8 @@
 // store tegninger ville et skarpt bilde av hele siden blitt altfor stort, så
 // da tegnes i tillegg et «detaljbilde» av bare det utsnittet som vises.
 import { buildLinkLayer, resolveDest, type LinkAction, type Target } from "./links";
-import { pdfjs, renderPageToCanvas, renderRegion, type PDFDocumentProxy } from "./pdf";
+import { LAYER_NAME } from "./measure-pdf";
+import { pdfjs, renderPageToCanvas, renderRegion, type OptionalContent, type PDFDocumentProxy } from "./pdf";
 
 /** Sidens geometri ved skala 1 med visningsrotasjon (pdf.js PageViewport). */
 export type PageGeometry = ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
@@ -66,6 +67,8 @@ export class Viewer {
   private generation = 0;
   private mode: ZoomMode = "auto";
   private rot = 0;
+  /** Lagoppsett der Blads egne lagrede mål er skjult (de tegnes av målelaget). */
+  private layers: OptionalContent | null = null;
   private toolMode: Tool = "select";
   private spaceHeld = false;
   private spacePanned = false;
@@ -174,8 +177,9 @@ export class Viewer {
     this.rot = 0;
     if (!doc) return;
 
-    const first = await doc.getPage(1);
+    const [first, layers] = await Promise.all([doc.getPage(1), hideMeasureLayer(doc)]);
     if (gen !== this.generation) return;
+    this.layers = layers;
     const vp = first.getViewport({ scale: 1 });
     this.sizes = Array.from({ length: doc.numPages }, () => ({ w: vp.width, h: vp.height }));
 
@@ -517,7 +521,7 @@ export class Viewer {
     if (gen !== this.generation || !this.visible.has(i)) return;
 
     const canvas = document.createElement("canvas");
-    const job = await renderPageToCanvas(page, canvas, scale, window.devicePixelRatio || 1, rot, BASE_MAX_PIXELS);
+    const job = await renderPageToCanvas(page, canvas, scale, window.devicePixelRatio || 1, rot, BASE_MAX_PIXELS, this.layers);
     const prev = this.rendered.get(i);
     prev?.cancel?.();
     const entry: Rendered = { scale, rotation: rot, canvas: prev?.canvas ?? canvas, cancel: job.cancel, text: prev?.text, detail: prev?.detail };
@@ -630,7 +634,7 @@ export class Viewer {
       const canvas = document.createElement("canvas");
       canvas.className = "detail";
       r.detailCancel?.();
-      const job = await renderRegion(page, canvas, scale, rot, { x, y, w, h }, dpr);
+      const job = await renderRegion(page, canvas, scale, rot, { x, y, w, h }, dpr, undefined, this.layers);
       r.detailCancel = job.cancel;
       try {
         await job.done;
@@ -667,6 +671,23 @@ export class Viewer {
   /** Kjører `onTextLayer` på nytt for alle tegnede sider (f.eks. nytt søk). */
   refreshTextLayers(): void {
     for (const [i, r] of this.rendered) if (r.textReady && r.text) this.onTextLayer?.(i, r.text);
+  }
+}
+
+/** Skjuler laget med Blads lagrede mål, hvis dokumentet har det. */
+async function hideMeasureLayer(doc: PDFDocumentProxy): Promise<OptionalContent | null> {
+  try {
+    const cfg = await doc.getOptionalContentConfig();
+    let found = false;
+    for (const [id, group] of cfg) {
+      if ((group as { name?: string })?.name === LAYER_NAME) {
+        cfg.setVisibility(id, false);
+        found = true;
+      }
+    }
+    return found ? cfg : null;
+  } catch {
+    return null;
   }
 }
 

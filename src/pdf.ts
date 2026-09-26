@@ -8,6 +8,8 @@ import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export type { PDFDocumentProxy, PDFPageProxy };
+/** Hvilke lag som vises (f.eks. for å skjule Blads egne mål i visningen). */
+export type OptionalContent = Awaited<ReturnType<PDFDocumentProxy["getOptionalContentConfig"]>>;
 export { pdfjs };
 
 /** Største antall piksler et lerret får ha (unngår minnesprekk ved kraftig zoom). */
@@ -39,6 +41,7 @@ export async function renderPageToCanvas(
   pixelRatio = 1,
   rotation = 0,
   maxPixels = MAX_CANVAS_PIXELS,
+  layers?: OptionalContent | null,
 ): Promise<{ cancel: () => void; done: Promise<void> }> {
   const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
   let ratio = pixelRatio;
@@ -53,6 +56,7 @@ export async function renderPageToCanvas(
     viewport,
     transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined,
     background: "#ffffff",
+    optionalContentConfigPromise: layers ? Promise.resolve(layers) : undefined,
   });
   return {
     cancel: () => task.cancel(),
@@ -78,6 +82,7 @@ export async function renderRegion(
   region: { x: number; y: number; w: number; h: number },
   pixelRatio: number,
   maxPixels = MAX_CANVAS_PIXELS,
+  layers?: OptionalContent | null,
 ): Promise<{ cancel: () => void; done: Promise<void> }> {
   const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
   let ratio = pixelRatio;
@@ -89,6 +94,7 @@ export async function renderRegion(
     viewport,
     transform: [ratio, 0, 0, ratio, -region.x * ratio, -region.y * ratio],
     background: "#ffffff",
+    optionalContentConfigPromise: layers ? Promise.resolve(layers) : undefined,
   });
   return {
     cancel: () => task.cancel(),

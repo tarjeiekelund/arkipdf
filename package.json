@@ -9,7 +9,7 @@
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "build": "tsc && vite build",
     "tauri": "tauri",
-    "test": "node --experimental-strip-types scripts/test-edit.mjs && node --experimental-strip-types scripts/test-measure.mjs"
+    "test": "node --experimental-strip-types scripts/test-edit.mjs && node --experimental-strip-types scripts/test-measure.mjs && node --experimental-strip-types scripts/test-snap.mjs && node --experimental-strip-types scripts/test-measure-pdf.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -48,13 +48,22 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
   annen, eller velger **Kalibrer mot kjent mål**: klikk to punkter på et mål
   du kjenner, og skriv inn lengden. Valget gjelder siden du står på og alle
   sider uten egen målestokk. Uten målestokk vises mål på arket i mm.
+- **Snapping:** Punktene festes til hjørner, skjæringspunkter, midtpunkter og
+  linjer i tegningen (i den rekkefølgen) når du klikker nær dem. En blå
+  markør viser hva punktet festes til. Hold **Alt** for å slå det av
+  midlertidig, eller fjern haken ved «Fest til tegningen».
 - **Shift** låser retningen til 0°, 45° og 90°.
 - Backspace fjerner siste punkt, Esc avbryter. Klikk et mål for å velge det,
   og trykk Delete for å fjerne det. Ctrl+Z fjerner det siste målet.
 - Lista nederst til høyre viser alle målene med sum av areal og lengder.
   **Kopier som tabell** gir en tabell du kan lime rett inn i Excel.
 - Mellomrom og midtre musetast flytter tegningen også mens du måler.
-- Målene lagres ikke i fila. De forsvinner når du åpner et annet dokument.
+- **Lagre i fila** (knappen i lista, eller Ctrl+S mens du måler) skriver
+  målene inn i PDF-en som vanlige målekommentarer, med linjer og tall. De
+  vises da også i Acrobat, Bluebeam og andre PDF-lesere, samlet i laget
+  «Mål (Blad)» som kan slås av og på der. Neste gang fila åpnes i Blad, kan
+  målene redigeres igjen, og målestokkvalgene er husket. Blad spør før
+  ulagrede mål forkastes.
 
 ### Presentasjon
 
@@ -134,6 +143,8 @@ lagt ut som en GitHub-release.
 │   ├── links.ts     lenker og bokmerkemål
 │   ├── measure.ts   måling: verktøy, målestokk, liste
 │   ├── measure-math.ts beregninger og innebygd målestokk i PDF
+│   ├── measure-pdf.ts lagring av mål som PDF-kommentarer
+│   ├── snap.ts      snapping til streker i tegningen
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»
 │   ├── merge.ts     «Slå sammen»
@@ -153,7 +164,7 @@ Krever Node 22 og Rust (stable).
 npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
-npm test             # selvtest av sortering, sammenslåing og måling
+npm test             # selvtester: sortering, sammenslåing, måling, snapping, lagring
 npx tauri build      # installer i src-tauri/target/release/bundle/nsis/
 ```
 

@@ -94,6 +94,24 @@ const viewControls = h(
 
 const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)" }));
 measure.onChange = () => refresh();
+measure.bytesSource = () => current!.bytes;
+// Lagre mål: skriv fila og åpne den på nytt på samme side, med måling fortsatt på.
+measure.onSave = async (bytes) => {
+  if (!current) return;
+  const { path } = current;
+  const page = viewer.current;
+  const b = busy("Lagrer målene…");
+  try {
+    await writeFile(path, bytes);
+    await openPath(path, page, bytes);
+    measure.open();
+    toast("Målene er lagret i fila", "success");
+  } catch (e) {
+    toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
+};
 
 const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", primary: true, className: "split-main" }));
 const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", primary: true, className: "split-caret" }));
@@ -431,8 +449,13 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
 }
 
 async function confirmDiscard(): Promise<boolean> {
-  if (!organizer?.dirty) return true;
-  return confirmDialog("Du har endringer i siderekkefølgen som ikke er lagret. Forkaste dem?");
+  if (organizer?.dirty) return confirmDialog("Du har endringer i siderekkefølgen som ikke er lagret. Forkaste dem?");
+  if (measure.dirty) {
+    const ok = await confirmDialog("Du har mål som ikke er lagret i fila. Forkaste dem?\n\n(Velg «Nei» og trykk Ctrl+S i måleverktøyet for å lagre.)");
+    if (ok) measure.dirty = false;
+    return ok;
+  }
+  return true;
 }
 
 async function openDialog(): Promise<void> {
@@ -481,7 +504,7 @@ function showCurrent(startPage = 0): void {
   if (viewer.document !== current.doc) {
     search.setDocument(current.doc);
     measure.close();
-    measure.setDocument(current.bytes);
+    measure.setDocument(current.bytes, current.doc);
     const z = store.get("zoom");
     viewer.setZoom(z === "width" || z === "page" ? z : "auto", null);
     void viewer.setDocument(current.doc, startPage).then(() => viewer.el.focus());
@@ -581,7 +604,7 @@ function startOrganize(): void {
       if (target) await save(items, target);
     },
     close: async () => {
-      if (!(await confirmDiscard())) return;
+      if (organizer?.dirty && !(await confirmDialog("Du har endringer i siderekkefølgen som ikke er lagret. Forkaste dem?"))) return;
       closeOrganizer();
       showCurrent();
     },

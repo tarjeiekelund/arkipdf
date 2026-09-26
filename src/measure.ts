@@ -14,14 +14,16 @@ import {
   pathLength,
   PAPER_METERS_PER_POINT,
   polygonArea,
-  readPdfScales,
   regionAt,
   scaleLabel,
   snap45,
   type PdfScaleRegion,
   type Pt,
 } from "./measure-math";
-import { button, h, modal, toast } from "./ui";
+import { readMeasureData, writeMeasurements, type WritableMeasurement } from "./measure-pdf";
+import type { PDFDocumentProxy } from "./pdf";
+import { SnapIndex, type SnapHit } from "./snap";
+import { button, errorMessage, h, modal, toast } from "./ui";
 import type { PageGeometry, Viewer } from "./viewer";
 
 export type MeasureKind = "distance" | "length" | "area";
@@ -45,8 +47,11 @@ interface Layer {
   el: HTMLDivElement;
   svg: SVGSVGElement;
   labels: HTMLDivElement;
+  marker: HTMLDivElement;
   geom: PageGeometry;
 }
+
+const SNAP_NAMES: Record<SnapHit["kind"], string> = { vertex: "Hjørne", mid: "Midtpunkt", cross: "Skjæring", line: "På linje" };
 
 const SVG = "http://www.w3.org/2000/svg";
 const PRESETS = [1, 5, 10, 20, 50, 100, 200, 250, 500, 1000, 2000];
@@ -88,6 +93,16 @@ export class Measure {
   private token = 0;
   private toolBefore: "select" | "hand" = "select";
   private down: { x: number; y: number } | null = null;
+  private doc: PDFDocumentProxy | null = null;
+  private snapOn = store.get("measureSnap") !== "0";
+  private snaps = new Map<number, SnapIndex | null>();
+  private snapLoading = new Set<number>();
+  private lastSnap: { page: number; hit: SnapHit } | null = null;
+  /** Endringer som ikke er lagret i fila. */
+  dirty = false;
+  /** Kalles med nye filbytes når målene skal lagres. */
+  onSave: ((bytes: Uint8Array) => Promise<void>) | null = null;
+  private saveBtn: HTMLButtonElement;
 
   private kindButtons: Record<MeasureKind, HTMLButtonElement>;
   private scaleSelect: HTMLSelectElement;
@@ -118,6 +133,12 @@ export class Measure {
       this.redrawAll();
     });
     this.scaleInfo = h("span", { class: "scale-info" });
+    const snapBox = h("input", { type: "checkbox", checked: this.snapOn });
+    snapBox.addEventListener("change", () => {
+      this.snapOn = snapBox.checked;
+      store.set("measureSnap", this.snapOn ? "1" : "0");
+      this.showMarker(null);
+    });
     this.hint = h("span", { class: "measure-hint muted" });
 
     this.bar = h(
@@ -129,6 +150,7 @@ export class Measure {
       h("label", { class: "inline-field" }, h("span", {}, "Målestokk"), this.scaleSelect),
       this.scaleInfo,
       h("label", { class: "inline-field" }, h("span", {}, "Enhet"), this.unitSelect),
+      h("label", { class: "inline-field check", title: "Fest punktene til hjørner, midtpunkter og linjer i tegningen. Hold Alt for å slå av midlertidig." }, snapBox, h("span", {}, "Fest til tegningen")),
       h("span", { class: "spacer" }),
       this.hint,
       button("", "close", () => this.close(), { title: "Avslutt måling (Esc)", className: "ghost" }),
@@ -137,6 +159,7 @@ export class Measure {
     this.list = h("ol", { class: "measure-list" });
     this.totals = h("div", { class: "measure-totals" });
     this.count = h("span", {});
+    this.saveBtn = button("Lagre", "save", () => void this.save(), { title: "Lagre målene i PDF-fila (Ctrl+S)", className: "save-btn" });
     this.panel = h(
       "div",
       { class: "measure-panel", hidden: true },
@@ -144,6 +167,7 @@ export class Measure {
         "header",
         {},
         h("strong", {}, "Mål ", this.count),
+        this.saveBtn,
         button("", "copy", () => void this.copyTable(), { title: "Kopier som tabell (lim inn i Excel)", className: "ghost" }),
         button("", "trash", () => this.clearAll(), { title: "Fjern alle mål", className: "ghost" }),
       ),
@@ -158,31 +182,80 @@ export class Measure {
 
   // ---------- Dokument og modus ----------
 
-  /** Nytt dokument: nullstill mål og les innebygd målestokk i bakgrunnen. */
-  setDocument(bytes: Uint8Array | null): void {
+  /**
+   * Nytt dokument: nullstill, og les i bakgrunnen innebygd målestokk og
+   * mål som er lagret i fila tidligere.
+   */
+  setDocument(bytes: Uint8Array | null, doc: PDFDocumentProxy | null): void {
     const token = ++this.token;
+    this.doc = doc;
     this.items = [];
     this.selected = null;
     this.drawing = null;
     this.calibrating = false;
+    this.dirty = false;
     this.pdfScales = new Map();
     this.pageScale.clear();
     this.defaultScale = null;
     this.layers.clear();
+    this.snaps.clear();
+    this.snapLoading.clear();
+    this.lastSnap = null;
     this.refreshPanel();
     this.refreshScaleUi();
     if (!bytes) return;
-    readPdfScales(bytes)
-      .then((scales) => {
+    readMeasureData(bytes)
+      .then((data) => {
         if (token !== this.token) return;
-        this.pdfScales = scales;
+        this.pdfScales = data.scales;
+        for (const [page, sc] of data.pageScales) this.pageScale.set(page, sc);
+        this.defaultScale = data.defaultScale;
+        this.items = data.measurements.map((m) => ({ ...m, id: this.nextId++ }));
         this.refreshScaleUi();
         this.redrawAll();
+        this.onChange();
       })
       .catch(() => {
         /* Uleselig eller kryptert: da finnes bare manuell målestokk. */
       });
   }
+
+  private markDirty(): void {
+    if (!this.dirty) {
+      this.dirty = true;
+      this.onChange();
+    }
+    this.refreshPanel();
+  }
+
+  /** Skriver målene inn i PDF-fila. */
+  async save(): Promise<void> {
+    if (!this.onSave || !this.bytesSource) return;
+    const items: WritableMeasurement[] = this.items.map((m) => {
+      const d = this.describe(m);
+      const scale = m.fixed ?? this.scaleFor(m.page);
+      return {
+        page: m.page,
+        kind: m.kind,
+        points: m.points,
+        fixed: m.fixed,
+        metersPerPoint: scale?.metersPerPoint ?? null,
+        scaleLabel: scale?.label ?? null,
+        text: d.main,
+        subText: d.sub,
+      };
+    });
+    try {
+      const out = await writeMeasurements(this.bytesSource(), items, this.pageScale, this.defaultScale);
+      this.dirty = false;
+      await this.onSave(out);
+    } catch (e) {
+      toast(`Kunne ikke lagre målene: ${errorMessage(e)}`, "error");
+    }
+  }
+
+  /** Henter gjeldende filbytes (settes av hovedprogrammet). */
+  bytesSource: (() => Uint8Array) | null = null;
 
   toggle(): void {
     if (this.active) this.close();
@@ -196,7 +269,7 @@ export class Measure {
     this.viewer.tool = "select";
     this.viewer.el.classList.add("measuring");
     this.bar.hidden = false;
-    this.panel.hidden = this.items.length === 0;
+    this.panel.hidden = this.items.length === 0 && !this.dirty;
     this.refreshScaleUi();
     this.updateHint();
     this.onChange();
@@ -270,6 +343,7 @@ export class Measure {
     this.defaultScale = scale;
     this.refreshScaleUi();
     this.redrawAll();
+    this.markDirty();
   }
 
   private onScaleSelect(): void {
@@ -363,19 +437,21 @@ export class Measure {
       this.down = null;
       if (!this.active || !d || e.button !== 0) return;
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
-      const hit = this.hitPage(e);
-      if (hit) this.click(hit.page, hit.p, e.shiftKey);
+      const hit = this.resolve(e);
+      if (hit) this.click(hit.page, hit.p, e.shiftKey && !hit.snapped);
     });
     el.addEventListener("pointermove", (e) => {
-      if (!this.active || (!this.drawing && !this.calibrating)) return;
-      const hit = this.hitPage(e);
+      if (!this.active) return;
+      const hit = this.resolve(e);
       if (!hit || (this.drawing && hit.page !== this.drawing.page)) return;
+      if (!this.drawing && !this.calibrating) return;
       let p = hit.p;
       const last = this.drawing?.points.at(-1);
-      if (last && e.shiftKey) p = snap45(last, p);
+      if (last && e.shiftKey && !hit.snapped) p = snap45(last, p);
       this.cursor = { page: hit.page, p };
       this.drawPreview(hit.page);
     });
+    el.addEventListener("pointerleave", () => this.showMarker(null));
     el.addEventListener("dblclick", (e) => {
       if (!this.active) return;
       e.preventDefault();
@@ -396,6 +472,63 @@ export class Measure {
     const vy = ((e.clientY - r.top) / r.height) * g.height;
     const [x, y] = g.convertToPdfPoint(vx, vy) as number[];
     return { page, p: [x, y] };
+  }
+
+  /**
+   * Punktet under musa etter snapping: fester til hjørner, midtpunkter,
+   * skjæringer og linjer i tegningen (ikke med Shift, som låser vinkelen,
+   * og ikke mens Alt holdes inne).
+   */
+  private resolve(e: MouseEvent): { page: number; p: Pt; snapped: boolean } | null {
+    const raw = this.hitPage(e);
+    if (!raw) {
+      this.showMarker(null);
+      return null;
+    }
+    let hit: SnapHit | null = null;
+    if (this.snapOn && !e.altKey && !e.shiftKey) {
+      const index = this.snapIndex(raw.page);
+      if (index) hit = index.query(raw.p, this.pointsPerPixel(raw.page) * 10);
+    }
+    this.showMarker(hit ? { page: raw.page, hit } : null);
+    return hit ? { page: raw.page, p: hit.p, snapped: true } : { ...raw, snapped: false };
+  }
+
+  /** Snapdata for en side; leses i bakgrunnen første gang siden brukes. */
+  private snapIndex(page: number): SnapIndex | null {
+    if (this.snaps.has(page)) return this.snaps.get(page) ?? null;
+    if (!this.snapLoading.has(page) && this.doc) {
+      this.snapLoading.add(page);
+      const doc = this.doc;
+      const token = this.token;
+      doc
+        .getPage(page + 1)
+        .then((p) => SnapIndex.build(p))
+        .then((index) => {
+          if (token === this.token) this.snaps.set(page, index);
+        })
+        .catch(() => {
+          if (token === this.token) this.snaps.set(page, null);
+        });
+    }
+    return null;
+  }
+
+  /** Viser hva punktet festes til (firkant: hjørne, trekant: midtpunkt, kryss: linje). */
+  private showMarker(snap: { page: number; hit: SnapHit } | null): void {
+    const prev = this.lastSnap;
+    if (prev && (!snap || prev.page !== snap.page)) this.layers.get(prev.page)?.marker.classList.remove("show");
+    this.lastSnap = snap;
+    if (!snap) return;
+    const layer = this.layers.get(snap.page);
+    if (!layer) return;
+    const [x, y] = this.toView(layer, snap.hit.p);
+    const m = layer.marker;
+    m.style.left = `${(x / layer.geom.width) * 100}%`;
+    m.style.top = `${(y / layer.geom.height) * 100}%`;
+    m.dataset.kind = snap.hit.kind;
+    m.dataset.label = SNAP_NAMES[snap.hit.kind];
+    m.classList.add("show");
   }
 
   /** PDF-punkter per skjermpiksel på en side (for toleranser). */
@@ -450,7 +583,7 @@ export class Measure {
     this.drawing = null;
     this.cursor = null;
     this.redraw(d.page);
-    this.refreshPanel();
+    this.markDirty();
     this.updateHint();
   }
 
@@ -469,15 +602,16 @@ export class Measure {
     this.items = this.items.filter((x) => x.id !== id);
     if (this.selected === id) this.selected = null;
     this.redraw(m.page);
-    this.refreshPanel();
+    this.markDirty();
   }
 
   private clearAll(): void {
     const pages = new Set(this.items.map((m) => m.page));
+    if (!this.items.length) return;
     this.items = [];
     this.selected = null;
     for (const p of pages) this.redraw(p);
-    this.refreshPanel();
+    this.markDirty();
   }
 
   private select(id: number, reveal: boolean): void {
@@ -500,7 +634,8 @@ export class Measure {
         this.redrawAll();
         this.refreshPanel();
       } else this.close();
-    } else if (k === "Enter") this.finish();
+    } else if (ctrl && k.toLowerCase() === "s") void this.save();
+    else if (k === "Enter") this.finish();
     else if (k === "Backspace" && this.drawing) {
       this.drawing.points.pop();
       const page = this.drawing.page;
@@ -517,6 +652,8 @@ export class Measure {
   }
 
   private updateHint(): void {
+    // Mens man måler, skal etikettene til andre mål ikke fange klikkene.
+    this.viewer.el.classList.toggle("m-drawing", !!this.drawing || this.calibrating);
     let t: string;
     if (this.calibrating) t = this.drawing ? "Klikk sluttpunktet på det kjente målet" : "Kalibrer: klikk startpunktet på et kjent mål";
     else if (!this.drawing) t = this.kind === "distance" ? "Klikk startpunkt" : "Klikk første punkt";
@@ -546,7 +683,10 @@ export class Measure {
 
   private refreshPanel(): void {
     this.count.textContent = this.items.length ? `(${this.items.length})` : "";
-    this.panel.hidden = !this.active || this.items.length === 0;
+    this.panel.hidden = !this.active || (this.items.length === 0 && !this.dirty);
+    this.saveBtn.disabled = !this.dirty;
+    this.saveBtn.classList.toggle("primary", this.dirty);
+    this.saveBtn.title = this.dirty ? "Lagre målene i PDF-fila (Ctrl+S)" : "Målene er lagret i fila";
     this.list.replaceChildren(
       ...this.items.map((m, i) => {
         const d = this.describe(m);
@@ -620,9 +760,10 @@ export class Measure {
       const svg = document.createElementNS(SVG, "svg");
       svg.setAttribute("preserveAspectRatio", "none");
       const labels = h("div", { class: "measure-labels" });
+      const marker = h("div", { class: "snap-marker" });
       const el = h("div", { class: "measureLayer" });
-      el.append(svg, labels);
-      layer = { el, svg, labels, geom };
+      el.append(svg, labels, marker);
+      layer = { el, svg, labels, marker, geom };
       this.layers.set(page, layer);
     }
     layer.geom = geom;
