@@ -18,6 +18,11 @@ const paths: Record<string, string> = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+  pointer: '<path d="M5 3l6.5 17 2.4-7.1L21 10.5z"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4-6 4z"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  caret: '<path d="m7 10 5 5 5-5"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   print: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
@@ -66,7 +71,9 @@ export function toast(message: string, kind: "info" | "error" | "success" = "inf
   el.textContent = message;
   el.className = `show ${kind}`;
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => el!.classList.remove("show"), kind === "error" ? 6000 : 3000);
+  // Lange meldinger står lenger, så de rekker å bli lest.
+  const ms = Math.max(kind === "error" ? 6000 : 3000, message.length * 60);
+  toastTimer = window.setTimeout(() => el!.classList.remove("show"), ms);
 }
 
 export function errorMessage(e: unknown): string {

@@ -2,7 +2,9 @@
 // utvikles og testes med `npm run dev` uten Windows.
 import { invoke } from "@tauri-apps/api/core";
 import * as dialog from "@tauri-apps/plugin-dialog";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, type Monitor } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -115,6 +117,74 @@ export async function setFullscreen(on: boolean): Promise<void> {
   }
   if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen().catch(() => {});
   if (!on && document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+}
+
+/** Åpner en nettadresse i standardnettleseren. */
+export async function openUrl(url: string): Promise<void> {
+  if (isTauri) await tauriOpenUrl(url);
+  else window.open(url, "_blank", "noopener");
+}
+
+export interface ScreenInfo {
+  /** Stabil nøkkel for å huske valget. */
+  id: string;
+  label: string;
+  current: boolean;
+}
+
+function monitorId(m: Monitor): string {
+  return `${m.name ?? "skjerm"}@${m.position.x},${m.position.y}`;
+}
+
+/** Skjermene som er koblet til (tom liste i nettleseren). */
+export async function listScreens(): Promise<ScreenInfo[]> {
+  if (!isTauri) return [];
+  const [all, cur] = await Promise.all([availableMonitors(), currentMonitor()]);
+  const curId = cur ? monitorId(cur) : "";
+  return all.map((m, i) => ({
+    id: monitorId(m),
+    label: `Skjerm ${i + 1} (${m.size.width}×${m.size.height})`,
+    current: monitorId(m) === curId,
+  }));
+}
+
+/**
+ * Flytter vinduet til valgt skjerm og går i fullskjerm. Returnerer en
+ * funksjon som setter vinduet tilbake slik det var.
+ */
+export async function enterPresentationScreen(screenId: string | null): Promise<() => Promise<void>> {
+  if (!isTauri) {
+    const was = !!document.fullscreenElement;
+    if (!was) await document.documentElement.requestFullscreen().catch(() => {});
+    return async () => {
+      if (!was && document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    };
+  }
+  const win = getCurrentWindow();
+  const wasFullscreen = await win.isFullscreen();
+  if (wasFullscreen) return async () => {};
+
+  const monitors = await availableMonitors();
+  const target = screenId ? monitors.find((m) => monitorId(m) === screenId) : null;
+  const cur = await currentMonitor();
+  if (!target || (cur && monitorId(cur) === monitorId(target))) {
+    await win.setFullscreen(true);
+    return async () => {
+      await win.setFullscreen(false);
+    };
+  }
+
+  // Husk plassering og størrelse, flytt til den andre skjermen og fyll den.
+  const [pos, size, maximized] = await Promise.all([win.outerPosition(), win.outerSize(), win.isMaximized()]);
+  if (maximized) await win.unmaximize();
+  await win.setPosition(new PhysicalPosition(target.position.x + 40, target.position.y + 40));
+  await win.setFullscreen(true);
+  return async () => {
+    await win.setFullscreen(false);
+    await win.setPosition(new PhysicalPosition(pos.x, pos.y));
+    await win.setSize(new PhysicalSize(size.width, size.height));
+    if (maximized) await win.maximize();
+  };
 }
 
 export async function isFullscreen(): Promise<boolean> {

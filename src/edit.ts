@@ -1,5 +1,5 @@
 // Endringer som skrives til fil: ny siderekkefølge og sammenslåing.
-import { PDFDocument, degrees } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, degrees, type PDFRef } from "pdf-lib";
 
 export interface PageItem {
   /** Opprinnelig sideindeks (0-basert). */
@@ -32,17 +32,48 @@ export async function rearrangePages(bytes: Uint8Array, items: PageItem[], name 
   return doc.save();
 }
 
-/** Slår sammen flere PDF-er i gitt rekkefølge. */
+/**
+ * Slår sammen flere PDF-er i gitt rekkefølge. Hver fil får et bokmerke med
+ * filnavnet, så et sammenslått tegningssett er lett å navigere i.
+ */
 export async function mergePdfs(
   files: Array<{ name: string; bytes: Uint8Array }>,
   onProgress?: (done: number) => void,
 ): Promise<Uint8Array> {
   const out = await PDFDocument.create();
+  const bookmarks: Array<{ title: string; page: PDFRef }> = [];
   for (let i = 0; i < files.length; i++) {
     const src = await load(files[i].bytes, files[i].name);
     const copied = await out.copyPages(src, src.getPageIndices());
     for (const p of copied) out.addPage(p);
+    if (copied.length) bookmarks.push({ title: files[i].name.replace(/\.pdf$/i, ""), page: copied[0].ref });
     onProgress?.(i + 1);
   }
+  addBookmarks(out, bookmarks);
   return out.save();
+}
+
+/** Lager en ny PDF med bare de valgte sidene (0-baserte indekser). */
+export async function extractPages(bytes: Uint8Array, pages: number[], name = "Dokumentet"): Promise<Uint8Array> {
+  const src = await load(bytes, name);
+  const out = await PDFDocument.create();
+  const copied = await out.copyPages(src, pages);
+  for (const p of copied) out.addPage(p);
+  return out.save();
+}
+
+/** Legger inn en flat liste med bokmerker som peker til hele sider. */
+function addBookmarks(doc: PDFDocument, items: Array<{ title: string; page: PDFRef }>): void {
+  if (!items.length) return;
+  const ctx = doc.context;
+  const root = ctx.nextRef();
+  const refs = items.map(() => ctx.nextRef());
+  items.forEach((it, i) => {
+    const dict = ctx.obj({ Title: PDFHexString.fromText(it.title), Parent: root, Dest: [it.page, "Fit"] });
+    if (i > 0) dict.set(PDFName.of("Prev"), refs[i - 1]);
+    if (i < items.length - 1) dict.set(PDFName.of("Next"), refs[i + 1]);
+    ctx.assign(refs[i], dict);
+  });
+  ctx.assign(root, ctx.obj({ Type: "Outlines", First: refs[0], Last: refs[refs.length - 1], Count: refs.length }));
+  doc.catalog.set(PDFName.of("Outlines"), root);
 }

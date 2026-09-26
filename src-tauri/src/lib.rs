@@ -51,6 +51,7 @@ fn startup_file() -> Option<String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![read_file, write_file, startup_file])
         .run(tauri::generate_context!())
         .expect("Blad kunne ikke starte");

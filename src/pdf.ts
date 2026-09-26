@@ -63,6 +63,42 @@ export async function renderPageToCanvas(
   };
 }
 
+/**
+ * Tegner bare et utsnitt av en side. Brukes ved kraftig zoom på store
+ * tegninger: da ville hele siden i full oppløsning blitt for stor, så vi
+ * tegner i stedet det som faktisk vises, skarpt.
+ *
+ * `region` er i CSS-piksler innenfor siden ved gitt skala og rotasjon.
+ */
+export async function renderRegion(
+  page: PDFPageProxy,
+  canvas: HTMLCanvasElement,
+  scale: number,
+  rotation: number,
+  region: { x: number; y: number; w: number; h: number },
+  pixelRatio: number,
+  maxPixels = MAX_CANVAS_PIXELS,
+): Promise<{ cancel: () => void; done: Promise<void> }> {
+  const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
+  let ratio = pixelRatio;
+  if (region.w * region.h * ratio * ratio > maxPixels) ratio = Math.sqrt(maxPixels / (region.w * region.h));
+  canvas.width = Math.max(1, Math.round(region.w * ratio));
+  canvas.height = Math.max(1, Math.round(region.h * ratio));
+  const task = page.render({
+    canvas,
+    viewport,
+    transform: [ratio, 0, 0, ratio, -region.x * ratio, -region.y * ratio],
+    background: "#ffffff",
+  });
+  return {
+    cancel: () => task.cancel(),
+    done: task.promise.catch((e: unknown) => {
+      if (e instanceof pdfjs.RenderingCancelledException) return;
+      throw e;
+    }),
+  };
+}
+
 /** Enkel kø så ikke hundre miniatyrer tegnes samtidig. */
 export class RenderQueue {
   private running = 0;

@@ -3,6 +3,9 @@ import { parsePageRange, renderPageToCanvas, type PDFDocumentProxy } from "./pdf
 import { dirName, joinPath, pickFolder, writeFile } from "./platform";
 import { busy, button, errorMessage, h, modal, nextFrame, toast } from "./ui";
 
+/** Største bilde per side (piksler); ca. 480 MB minne under tegning. */
+const EXPORT_MAX_PIXELS = 120_000_000;
+
 export function openExportDialog(doc: PDFDocumentProxy, filePath: string, currentPage: number): void {
   const n = doc.numPages;
   const radio = (value: string, label: string, checked = false) =>
@@ -54,14 +57,18 @@ async function exportPages(doc: PDFDocumentProxy, filePath: string, pages: numbe
   const digits = Math.max(2, String(doc.numPages).length);
   const b = busy("Eksporterer…");
   let written = 0;
+  let lowestDpi = dpi;
   try {
     for (const idx of pages) {
       if (b.cancelled()) break;
       b.update(`Eksporterer side ${idx + 1} (${written + 1} av ${pages.length})`, written / pages.length);
       await nextFrame();
       const page = await doc.getPage(idx + 1);
+      const vp = page.getViewport({ scale: 1 });
+      const pixels = ((vp.width * dpi) / 72) * ((vp.height * dpi) / 72);
+      if (pixels > EXPORT_MAX_PIXELS) lowestDpi = Math.min(lowestDpi, Math.floor(dpi * Math.sqrt(EXPORT_MAX_PIXELS / pixels)));
       const canvas = document.createElement("canvas");
-      const job = await renderPageToCanvas(page, canvas, dpi / 72, 1, 0, 120_000_000);
+      const job = await renderPageToCanvas(page, canvas, dpi / 72, 1, 0, EXPORT_MAX_PIXELS);
       await job.done;
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
       canvas.width = canvas.height = 0;
@@ -70,7 +77,9 @@ async function exportPages(doc: PDFDocumentProxy, filePath: string, pages: numbe
       await writeFile(joinPath(folder, name), new Uint8Array(await blob.arrayBuffer()));
       written++;
     }
-    toast(`${written} ${written === 1 ? "bilde" : "bilder"} lagret${folder ? ` i ${folder}` : ""}`, "success");
+    const saved = `${written} ${written === 1 ? "bilde" : "bilder"} lagret${folder ? ` i ${folder}` : ""}`;
+    if (lowestDpi < dpi) toast(`${saved}. Store ark ble lagret med ca. ${lowestDpi} DPI – større bilder blir for tunge å lage.`, "info");
+    else toast(saved, "success");
   } catch (e) {
     toast(`Eksport feilet: ${errorMessage(e)}`, "error");
   } finally {

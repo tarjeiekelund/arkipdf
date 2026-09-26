@@ -234,6 +234,19 @@ export class Search {
     if (layer) this.paint(page, layer);
   }
 
+  /**
+   * Ruller treffet inn i bildet, litt over midten. Sidetelleren leser siden
+   * 30 % ned i vinduet, så treffet må ligge over den linjen for at riktig
+   * side vises.
+   */
+  private reveal(mark: HTMLElement): void {
+    const v = this.viewer.el;
+    const vr = v.getBoundingClientRect();
+    const r = mark.getBoundingClientRect();
+    v.scrollTop += r.top - vr.top - v.clientHeight * 0.2;
+    if (r.left < vr.left || r.right > vr.left + v.clientWidth) v.scrollLeft += r.left - vr.left - v.clientWidth / 2;
+  }
+
   /** Legger markeringer inn i tekstlaget for én side. */
   private paint(page: number, layer: TextLayerInfo): void {
     const { textDivs, textContentItemsStr: strs } = layer;
@@ -278,7 +291,7 @@ export class Search {
       this.highlighted.set(page, new Set(parts.keys()));
       if (selectedEl && this.revealPage === page) {
         this.revealPage = -1;
-        (selectedEl as HTMLElement).scrollIntoView({ block: "center", inline: "nearest" });
+        this.reveal(selectedEl as HTMLElement);
       }
     });
   }

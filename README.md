@@ -9,16 +9,63 @@ Navnet spiller på *blad* som i en side i et dokument, og et lett blad.
 
 | Funksjon | Hvordan |
 | --- | --- |
-| Åpne PDF-er, store som små | **Ctrl+O**, dra fila inn i vinduet, eller dobbeltklikk en PDF i Utforsker |
-| Presentere i fullskjerm | **Ctrl+L** (eller F5). Bla med piltaster, mellomrom, Page Up/Down, museklikk eller musehjul. **Esc** avslutter |
-| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer, sett rekkefølgen og lagre som ny PDF. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte |
-| Endre rekkefølge på sider | **Ctrl+K**. Dra sidene dit du vil ha dem. **Ctrl+S** lagrer tilbake i samme fil, **Ctrl+Shift+S** lagrer som ny fil. Du kan også rotere (Ctrl+R) og slette (Delete) sider, og angre (Ctrl+Z) |
+| Åpne PDF-er, store som små | **Ctrl+O**, dra fila inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. Blad husker hvilken side du var på |
+| Presentere i fullskjerm | **Ctrl+L** (eller F5). Se [Presentasjon](#presentasjon) |
+| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer, sett rekkefølgen og lagre som ny PDF. Hver fil får et bokmerke med filnavnet. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte |
+| Endre rekkefølge på sider | **Ctrl+K**. Dra sidene dit du vil ha dem. **Ctrl+S** lagrer tilbake i samme fil, **Ctrl+Shift+S** lagrer som ny fil. Du kan også rotere (Ctrl+R) og slette (Delete) sider, og angre (Ctrl+Z). Glidebryteren gir større miniatyrer |
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
-| Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige. Søket starter på siden du står på, og telleren viser «3 av 17» |
-| Skrive ut | **Ctrl+P**. Velg alle sider, denne siden eller et utvalg, og standard eller høy kvalitet. Så kommer Windows' vanlige utskriftsdialog, der du velger skriver og antall kopier |
+| Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
+| Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 
-Andre snarveier: Ctrl+G gå til side · Ctrl+B vis/skjul miniatyrer ·
-Ctrl+pluss/minus eller Ctrl+musehjul for zoom · Ctrl+0 automatisk zoom ·
+### Tegninger
+
+- **Skarp zoom helt til 3200 %.** Ved kraftig zoom tegnes det synlige
+  utsnittet på nytt i full oppløsning, så tynne linjer og små mål er skarpe
+  også på A0.
+- **Zoom mot musepekeren** med Ctrl+musehjul eller knip på styreflaten.
+- **Dra tegningen rundt:** hold inne **mellomrom** og dra, dra med **midtre
+  musetast**, eller velg håndverktøyet (**H**; **V** tilbake til markering).
+- **Roter visningen** med **R** (Shift+R mot klokka). Fila endres ikke.
+- **Bokmerker** vises i sidepanelet (fanen «Bokmerker»), og **lenker** i
+  PDF-en er klikkbare. Lenker til nettsider åpnes i nettleseren etter at du
+  har bekreftet.
+- Tilpasset zoom regnes ut fra det største arket, så alle arkene i et
+  tegningssett har samme målestokk seg imellom.
+
+### Presentasjon
+
+| Tast | Virkning |
+| --- | --- |
+| → ↓ PgDn Mellomrom Enter, klikk | Neste side |
+| ← ↑ PgUp Backspace, høyreklikk | Forrige side |
+| Sidetall + Enter (f.eks. `12` Enter) | Gå til side 12 |
+| Ctrl+musehjul, + / − | Zoom inn på et utsnitt (skarpt til 1600 %) |
+| Dra med musa, piltaster | Flytt rundt når du har zoomet |
+| 0 | Hele siden igjen |
+| B / W | Svart / hvit skjerm |
+| L | Laserpeker |
+| ? | Vis alle snarveier |
+| Esc | Avslutt |
+
+Pilen ved siden av **Presenter** lar deg velge skjerm, for eksempel
+projektoren. Valget huskes. Projektoren må være koblet til som «Utvid»
+(Windows+P).
+
+### Utskrift
+
+Utskriften sender PDF-en direkte til PDF-motoren i Windows (WebView2), så
+linjene skrives ut som vektorer, skarpt også på stort format. Velg
+**«Faktisk størrelse»** (skala 100 %) i utskriftsdialogen for å få tegningen
+i riktig målestokk, eller «Tilpass» for å få den på arket.
+
+«Som bilder» er en reserve for skrivere som har problemer med vektorutskrift.
+Da får hver side sitt eget arkformat, og du får beskjed hvis store ark må
+skrives ut med lavere oppløsning.
+
+### Andre snarveier
+
+Ctrl+G gå til side · Ctrl+B vis/skjul sidepanel ·
+Ctrl+pluss/minus for zoom · Ctrl+0 automatisk zoom ·
 Ctrl+1 faktisk størrelse · Ctrl+2 hel side · Ctrl+3 tilpass bredde ·
 Home/End første/siste side.
 
@@ -59,7 +106,8 @@ lagt ut som en GitHub-release.
 .
 ├── src/             grensesnitt (TypeScript, uten rammeverk)
 │   ├── main.ts      oppstart, verktøylinje, tastatursnarveier
-│   ├── viewer.ts    kontinuerlig sidevisning med lat tegning
+│   ├── viewer.ts    kontinuerlig sidevisning, skarp dyp zoom, håndverktøy
+│   ├── links.ts     lenker og bokmerkemål
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»
 │   ├── merge.ts     «Slå sammen»

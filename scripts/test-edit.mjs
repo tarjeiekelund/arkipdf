@@ -2,7 +2,7 @@
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import assert from "node:assert/strict";
-import { rearrangePages, mergePdfs } from "../src/edit.ts";
+import { rearrangePages, mergePdfs, extractPages } from "../src/edit.ts";
 
 async function make(labels) {
   const doc = await PDFDocument.create();
@@ -33,4 +33,13 @@ assert.deepEqual(await texts(r), [
 const b = await make(["B1", "B2"]);
 const m = await mergePdfs([{ name: "b", bytes: b }, { name: "a", bytes: a }]);
 assert.deepEqual((await texts(m)).map((x) => x.text), ["B1", "B2", "A1", "A2", "A3", "A4"]);
+
+// Sammenslåingen får ett bokmerke per fil, som peker til filens første side.
+const md = await getDocument({ data: m.slice() }).promise;
+const outline = await md.getOutline();
+assert.deepEqual(outline.map((o) => o.title), ["b", "a"]);
+assert.equal(await md.getPageIndex(outline[1].dest[0]), 2);
+
+const e = await extractPages(a, [2, 0]);
+assert.deepEqual((await texts(e)).map((x) => x.text), ["A3", "A1"]);
 console.log("OK");

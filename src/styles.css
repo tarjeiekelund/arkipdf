@@ -179,6 +179,7 @@ select:focus-visible,
 }
 
 .page-nav {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -203,11 +204,26 @@ select:focus-visible,
   color: var(--muted);
 }
 
-@media (max-width: 900px) {
-  .toolbar .btn span {
+/* Smale vinduer: bare ikoner i verktøylinja (verktøytips viser navnet). */
+@media (max-width: 1360px) {
+  .toolbar .btn:not(.split-main) span {
     display: none;
   }
+  .toolbar .btn:not(.ghost):not(.split-main):not(.split-caret) {
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 1100px) {
   .subbar .hint {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .split-main span,
+  .page-total,
+  .zoom-label {
     display: none;
   }
 }
@@ -230,9 +246,7 @@ main {
 }
 
 .sidebar {
-  width: 168px;
   flex: none;
-  overflow-y: auto;
   background: var(--surface);
   border-right: 1px solid var(--border);
 }
@@ -298,6 +312,7 @@ main {
 }
 
 .pages {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -322,6 +337,47 @@ main {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* Skarpt utsnitt ved kraftig zoom; posisjon settes i prosent av siden. */
+.page canvas.detail {
+  position: absolute;
+  z-index: 0;
+}
+
+/* Klikkbare lenker i PDF-en. */
+.linkLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.linkLayer a {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.linkLayer a:hover {
+  background: rgb(31 111 92 / 0.15);
+  outline: 1px solid rgb(31 111 92 / 0.5);
+}
+
+/* Håndverktøy: dra tegningen rundt. */
+.viewer.hand {
+  cursor: grab;
+}
+
+.viewer.hand .textLayer,
+.viewer.panning .textLayer {
+  pointer-events: none;
+  user-select: none;
+}
+
+.viewer.panning {
+  cursor: grabbing;
 }
 
 /* Tekstlag fra pdf.js — gjør teksten markerbar og kopierbar. */
@@ -472,33 +528,72 @@ main {
   z-index: 100;
   background: #000;
   outline: none;
+  overflow: hidden;
+  touch-action: none;
 }
 
-.present.hide-cursor {
+.present.hide-cursor,
+.present.laser {
   cursor: none;
 }
 
-.present-stage {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.present.zoomed {
+  cursor: grab;
 }
 
-.present-stage canvas {
+.present.panning {
+  cursor: grabbing;
+}
+
+.present-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.present-sheet canvas.base {
   display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.present-sheet canvas.detail {
+  position: absolute;
+}
+
+.present-blank {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+.present-blank[data-color="white"] {
+  background: #fff;
+}
+
+.present-laser {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 40 40) 0 35%, rgb(255 40 40 / 0.45) 55%, rgb(255 40 40 / 0) 72%);
+  pointer-events: none;
+  z-index: 3;
 }
 
 .present-counter {
   position: absolute;
   right: 20px;
   bottom: 16px;
-  padding: 4px 10px;
+  z-index: 4;
+  padding: 5px 12px;
   border-radius: 6px;
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(0 0 0 / 0.65);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;
@@ -506,6 +601,47 @@ main {
 
 .present-counter.show {
   opacity: 1;
+}
+
+.present-help {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  padding: 24px 28px;
+  border-radius: 12px;
+  background: rgb(20 20 20 / 0.92);
+  color: #fff;
+  cursor: default;
+}
+
+.present-help h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+.present-help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  margin: 0;
+}
+
+.present-help dt {
+  color: #b9d9cf;
+  font-weight: 600;
+}
+
+.present-help dd {
+  margin: 0;
+}
+
+.present-help p {
+  margin: 16px 0 0;
+  color: #aaa;
+  font-size: 13px;
 }
 
 /* ---------- Sorter sider ---------- */
@@ -537,7 +673,7 @@ main {
   flex: 1;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--thumb, 150px) + 20px), 1fr));
   align-content: start;
   gap: 20px;
   padding: 20px;
@@ -569,16 +705,16 @@ main {
 }
 
 .card .thumb {
-  width: 150px;
-  height: 200px;
+  width: var(--thumb, 150px);
+  height: calc(var(--thumb, 150px) * 4 / 3);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .card img {
-  max-width: 150px;
-  max-height: 200px;
+  max-width: var(--thumb, 150px);
+  max-height: calc(var(--thumb, 150px) * 4 / 3);
   background: #fff;
   box-shadow: var(--shadow);
   transition: transform 0.15s;
@@ -586,8 +722,20 @@ main {
 }
 
 .card img:not([src]) {
-  width: 140px;
-  height: 190px;
+  width: calc(var(--thumb, 150px) * 0.93);
+  height: calc(var(--thumb, 150px) * 1.27);
+}
+
+.size-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.size-slider input {
+  width: 110px;
+  accent-color: var(--accent);
 }
 
 .card .label {
@@ -689,6 +837,13 @@ main {
 
 .form p {
   margin: 0;
+}
+
+.note {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  font-size: 13px;
 }
 
 fieldset {
@@ -951,6 +1106,18 @@ input.range {
   display: none;
 }
 
+/* Skjult ramme som holder PDF-en under vektorutskrift. */
+.print-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 @media print {
   html,
   body {
@@ -967,12 +1134,9 @@ input.range {
     display: block;
   }
 
+  /* Bredde, høyde og arkformat settes per side (navngitte @page-regler). */
   .print-page {
-    width: 100%;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: relative;
     overflow: hidden;
     break-after: page;
   }
@@ -981,8 +1145,278 @@ input.range {
     break-after: auto;
   }
 
+  /* Absolutt plassert: ellers lar Chromium store bilder overstyre arkformatet. */
   .print-page img {
-    max-width: 100%;
-    max-height: 100%;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
+}
+
+/* ---------- Verktøyvalg og delt «Presenter»-knapp ---------- */
+
+.tool-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.btn.tool {
+  height: 30px;
+}
+
+.btn.tool.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.split {
+  display: inline-flex;
+}
+
+.split .split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.split .split-caret {
+  padding: 0 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgb(255 255 255 / 0.35);
+}
+
+.popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.popover-title {
+  padding: 6px 10px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.popover-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.popover-item:hover,
+.popover-item:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.popover-item.active::before {
+  content: "✓ ";
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.popover-note {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ---------- Sidepanel: faner og bokmerker ---------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 220px;
+}
+
+.sidebar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 8px 8px 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  flex: none;
+}
+
+.tab {
+  flex: 1;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.thumb-list,
+.outline {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.outline {
+  padding: 8px 6px 16px;
+}
+
+.outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outline ul ul {
+  padding-left: 14px;
+}
+
+.outline-row {
+  display: flex;
+  align-items: center;
+}
+
+.outline-toggle {
+  flex: none;
+  display: flex;
+  width: 22px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.outline-toggle .icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.12s;
+}
+
+.outline li.open > .outline-row .outline-toggle .icon {
+  transform: rotate(90deg);
+}
+
+.outline-link {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.outline-link:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- Nylige filer på startsiden ---------- */
+
+.recent {
+  width: min(520px, 100%);
+  margin-top: 18px;
+  text-align: left;
+}
+
+.recent h2 {
+  margin: 0 0 6px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.recent li + li {
+  border-top: 1px solid var(--border);
+}
+
+.recent-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent-item:hover {
+  background: var(--surface-2);
+}
+
+.recent-item .file-icon {
+  grid-row: span 2;
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+.recent-name,
+.recent-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-name {
+  font-weight: 600;
+}
+
+.recent-dir {
+  font-size: 12px;
 }

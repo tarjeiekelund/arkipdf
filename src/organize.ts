@@ -37,6 +37,8 @@ export class Organizer {
       button("", "rotateRight", () => this.rotate(90), { title: "Roter valgte med klokka" }),
       button("Slett", "trash", () => this.remove(), { title: "Slett valgte sider (Delete)" }),
       h("span", { class: "sep" }),
+      this.sizeSlider(),
+      h("span", { class: "sep" }),
       this.status,
       button("Avbryt", null, () => this.cb.close(), { title: "Lukk uten å lagre (Esc)" }),
       button("Lagre som…", null, () => void this.cb.saveAs(this.items), { title: "Lagre som ny fil (Ctrl+Shift+S)" }),
@@ -65,6 +67,28 @@ export class Organizer {
       if (e.target === this.grid) this.select(null, e);
     });
     this.build();
+  }
+
+  /** Glidebryter for miniatyrstørrelse; store tegninger trenger store miniatyrer. */
+  private sizeSlider(): HTMLElement {
+    let size = 150;
+    try {
+      size = Number(localStorage.getItem("thumbSize")) || 150;
+    } catch {
+      /* ikke kritisk */
+    }
+    const input = h("input", { type: "range", min: "90", max: "360", step: "10", value: String(size), "aria-label": "Størrelse på miniatyrer", title: "Størrelse på miniatyrer" });
+    const apply = () => {
+      this.el.style.setProperty("--thumb", `${input.value}px`);
+      try {
+        localStorage.setItem("thumbSize", input.value);
+      } catch {
+        /* ikke kritisk */
+      }
+    };
+    input.addEventListener("input", apply);
+    queueMicrotask(apply);
+    return h("label", { class: "size-slider" }, h("span", { html: icon("organize") }), input);
   }
 
   get dirty(): boolean {
