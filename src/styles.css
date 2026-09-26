@@ -205,7 +205,7 @@ select:focus-visible,
 }
 
 /* Smale vinduer: bare ikoner i verktøylinja (verktøytips viser navnet). */
-@media (max-width: 1360px) {
+@media (max-width: 1500px) {
   .toolbar .btn:not(.split-main) span {
     display: none;
   }
@@ -1419,4 +1419,254 @@ input.range {
 
 .recent-dir {
   font-size: 12px;
+}
+
+/* ---------- Måling ---------- */
+
+.measure-bar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inline-field select {
+  height: 30px;
+  color: var(--text);
+}
+
+.scale-info {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+}
+
+.measure-hint {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.form .row {
+  display: flex;
+  gap: 8px;
+}
+
+.form .row input {
+  flex: 1;
+}
+
+.viewer.measuring {
+  cursor: crosshair;
+}
+
+.viewer.measuring .textLayer,
+.viewer.measuring .linkLayer {
+  pointer-events: none;
+  user-select: none;
+}
+
+.viewer.measuring .linkLayer a {
+  pointer-events: none;
+}
+
+.measureLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.measureLayer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.m-shape {
+  fill: none;
+  stroke: #d9480f;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.m-shape.area {
+  fill: rgb(217 72 15 / 0.12);
+}
+
+.m-shape.selected {
+  stroke: #1c7ed6;
+  stroke-width: 3px;
+}
+
+.m-shape.area.selected {
+  fill: rgb(28 126 214 / 0.14);
+}
+
+.m-shape.preview {
+  stroke-dasharray: 6 4;
+}
+
+.m-shape.preview.calibrate {
+  stroke: #1c7ed6;
+}
+
+.measure-labels,
+.measure-preview {
+  position: absolute;
+  inset: 0;
+}
+
+.measure-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px #d9480f;
+}
+
+.measure-dot.selected {
+  box-shadow: 0 0 0 2px #1c7ed6;
+}
+
+.measure-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px #d9480f, 0 2px 6px rgb(0 0 0 / 0.18);
+  color: #1b1f1e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-label small {
+  font-weight: 500;
+  font-size: 11px;
+  color: #5d6663;
+}
+
+.measure-label.selected {
+  box-shadow: 0 0 0 2px #1c7ed6, 0 2px 6px rgb(0 0 0 / 0.18);
+}
+
+.measure-label.preview {
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.measure-label.at-cursor {
+  transform: translate(12px, -130%);
+}
+
+.measure-panel {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 15;
+  width: 300px;
+  max-height: min(420px, 60%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.measure-panel header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.measure-panel header strong {
+  flex: 1;
+}
+
+.measure-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+
+.measure-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.measure-list li:hover {
+  background: var(--surface-2);
+}
+
+.measure-list li.selected {
+  background: var(--accent-soft);
+}
+
+.measure-nr {
+  width: 20px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-desc {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.measure-desc .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.measure-value {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-totals {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
 }

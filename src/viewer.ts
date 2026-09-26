@@ -7,6 +7,9 @@
 import { buildLinkLayer, resolveDest, type LinkAction, type Target } from "./links";
 import { pdfjs, renderPageToCanvas, renderRegion, type PDFDocumentProxy } from "./pdf";
 
+/** Sidens geometri ved skala 1 med visningsrotasjon (pdf.js PageViewport). */
+export type PageGeometry = ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
+
 export type ZoomMode = "auto" | "width" | "page" | number;
 export type Tool = "select" | "hand";
 
@@ -76,6 +79,8 @@ export class Viewer {
   onTextLayer: ((page: number, layer: TextLayerInfo) => void) | null = null;
   /** Kalles for lenker til nettsider. */
   onOpenUrl: (url: string) => void = () => {};
+  /** Kalles hver gang en side er tegnet, så andre lag (f.eks. mål) kan legges på. */
+  onPageRendered: ((page: number, pageEl: HTMLDivElement, geometry: PageGeometry) => void) | null = null;
 
   constructor() {
     this.pagesEl = document.createElement("div");
@@ -145,6 +150,11 @@ export class Viewer {
 
   get rotation(): number {
     return this.rot;
+  }
+
+  /** Holdes mellomrom inne (midlertidig håndverktøy)? */
+  get panKeyHeld(): boolean {
+    return this.spaceHeld;
   }
 
   get tool(): Tool {
@@ -536,6 +546,7 @@ export class Viewer {
     pageEl.replaceChildren(...children);
     entry.canvas = canvas;
     entry.cancel = undefined;
+    this.onPageRendered?.(i, pageEl, page.getViewport({ scale: 1, rotation: (page.rotate + rot) % 360 }));
 
     const textLayer = new pdfjs.TextLayer({
       textContentSource: page.streamTextContent(),

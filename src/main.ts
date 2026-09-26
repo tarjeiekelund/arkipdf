@@ -1,6 +1,7 @@
 import "./styles.css";
 import { rearrangePages, type PageItem } from "./edit";
 import { openExportDialog } from "./exportpng";
+import { Measure } from "./measure";
 import { openMergeDialog } from "./merge";
 import { Organizer } from "./organize";
 import { loadPdf, pdfjs, ThumbCache, type PDFDocumentProxy } from "./pdf";
@@ -58,6 +59,7 @@ const store = {
 
 const viewer = new Viewer();
 const search = new Search(viewer);
+const measure = new Measure(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -90,6 +92,9 @@ const viewControls = h(
   h("span", { class: "sep" }),
 );
 
+const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)" }));
+measure.onChange = () => refresh();
+
 const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", primary: true, className: "split-main" }));
 const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", primary: true, className: "split-caret" }));
 
@@ -101,6 +106,7 @@ const toolbar = h(
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
   docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
+  measureBtn,
   h("span", { class: "spacer" }),
   viewControls,
   h("span", { class: "split" }, presentBtn, screenBtn),
@@ -123,6 +129,7 @@ function emptyState(): HTMLElement {
     ["Ctrl+O", "Åpne"],
     ["Ctrl+L", "Presenter i fullskjerm"],
     ["Ctrl+F", "Søk i teksten"],
+    ["M", "Mål avstand og areal"],
     ["Ctrl+P", "Skriv ut"],
     ["Ctrl+M", "Slå sammen PDF-er"],
     ["Ctrl+K", "Sorter sider"],
@@ -254,6 +261,7 @@ function refresh(): void {
   tabOutline.classList.toggle("active", tab === "outline");
   selectBtn.classList.toggle("active", viewer.tool === "select");
   handBtn.classList.toggle("active", viewer.tool === "hand");
+  measureBtn.classList.toggle("active", measure.active);
   if (hasDoc) {
     if (document.activeElement !== pageInput) pageInput.value = String(viewer.current + 1);
     pageTotal.textContent = `av ${viewer.pageCount}`;
@@ -269,6 +277,7 @@ function refresh(): void {
 viewer.onChange = () => {
   refresh();
   rememberPage();
+  measure.pageChanged();
 };
 viewer.onOpenUrl = (url) => {
   void confirmDialog(`Åpne lenken i nettleseren?\n\n${url}`).then((ok) => {
@@ -468,9 +477,11 @@ function showCurrent(startPage = 0): void {
     refresh();
     return;
   }
-  content.replaceChildren(viewer.el, search.el);
+  content.replaceChildren(measure.bar, viewer.el, search.el, measure.panel);
   if (viewer.document !== current.doc) {
     search.setDocument(current.doc);
+    measure.close();
+    measure.setDocument(current.bytes);
     const z = store.get("zoom");
     viewer.setZoom(z === "width" || z === "page" ? z : "auto", null);
     void viewer.setDocument(current.doc, startPage).then(() => viewer.el.focus());
@@ -576,6 +587,7 @@ function startOrganize(): void {
     },
   });
   if (search.isOpen) search.close();
+  measure.close();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -615,6 +627,11 @@ window.addEventListener("keydown", (e) => {
     if (organizer.handleKey(e)) e.preventDefault();
     return;
   }
+  // Måling har egne taster (D/L/A, Enter, Esc, Delete …).
+  if (measure.active && current && !typing(e.target) && measure.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   let handled = true;
@@ -644,6 +661,7 @@ window.addEventListener("keydown", (e) => {
   // Piltaster blar side, men ruller sidelengs når tegningen er bredere enn vinduet.
   else if (e.key === "ArrowRight" && !scrollsSideways()) viewer.goToPage(viewer.current + 1);
   else if (e.key === "ArrowLeft" && !scrollsSideways()) viewer.goToPage(viewer.current - 1);
+  else if (k === "m") measure.toggle();
   else if (k === "h") setTool("hand");
   else if (k === "v") setTool("select");
   else if (e.key === "r") viewer.rotate(90);

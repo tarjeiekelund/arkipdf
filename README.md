@@ -32,6 +32,30 @@ Navnet spiller på *blad* som i en side i et dokument, og et lett blad.
 - Tilpasset zoom regnes ut fra det største arket, så alle arkene i et
   tegningssett har samme målestokk seg imellom.
 
+### Måling
+
+Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
+
+| Verktøy | Slik gjør du |
+| --- | --- |
+| **Avstand** (D) | Klikk start- og sluttpunkt |
+| **Lengde** (L) | Klikk flere punkter; dobbeltklikk eller Enter avslutter. Gir summen av alle segmentene |
+| **Areal** (A) | Klikk hjørnene; klikk startpunktet, dobbeltklikk eller Enter lukker. Viser også omkrets |
+
+- **Målestokk:** Har PDF-en innebygd målestokk (som Revit, ArchiCAD og
+  AutoCAD legger inn), brukes den automatisk. Det vises som «Fra PDF: 1:100».
+  Ellers velger du målestokk i lista (1:20, 1:50, 1:100 …), skriver inn en
+  annen, eller velger **Kalibrer mot kjent mål**: klikk to punkter på et mål
+  du kjenner, og skriv inn lengden. Valget gjelder siden du står på og alle
+  sider uten egen målestokk. Uten målestokk vises mål på arket i mm.
+- **Shift** låser retningen til 0°, 45° og 90°.
+- Backspace fjerner siste punkt, Esc avbryter. Klikk et mål for å velge det,
+  og trykk Delete for å fjerne det. Ctrl+Z fjerner det siste målet.
+- Lista nederst til høyre viser alle målene med sum av areal og lengder.
+  **Kopier som tabell** gir en tabell du kan lime rett inn i Excel.
+- Mellomrom og midtre musetast flytter tegningen også mens du måler.
+- Målene lagres ikke i fila. De forsvinner når du åpner et annet dokument.
+
 ### Presentasjon
 
 | Tast | Virkning |
@@ -108,6 +132,8 @@ lagt ut som en GitHub-release.
 │   ├── main.ts      oppstart, verktøylinje, tastatursnarveier
 │   ├── viewer.ts    kontinuerlig sidevisning, skarp dyp zoom, håndverktøy
 │   ├── links.ts     lenker og bokmerkemål
+│   ├── measure.ts   måling: verktøy, målestokk, liste
+│   ├── measure-math.ts beregninger og innebygd målestokk i PDF
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»
 │   ├── merge.ts     «Slå sammen»
@@ -127,7 +153,7 @@ Krever Node 22 og Rust (stable).
 npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
-npm test             # selvtest av sortering og sammenslåing
+npm test             # selvtest av sortering, sammenslåing og måling
 npx tauri build      # installer i src-tauri/target/release/bundle/nsis/
 ```
 
