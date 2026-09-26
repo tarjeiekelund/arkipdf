@@ -3,7 +3,9 @@
 # - Hver push og pull request gir en installer som artefakt på kjøringen
 #   (Actions → «Windows-bygg» → Artifacts).
 # - En tagg som «v0.1.0» lager i tillegg en GitHub-release med
-#   installeren vedlagt.
+#   installeren vedlagt. Det samme gjør en manuell kjøring (Actions →
+#   «Windows-bygg» → Run workflow) der feltet «release» er fylt ut; da
+#   lager GitHub taggen selv på commiten som bygges.
 
 name: Windows-bygg
 
@@ -14,12 +16,20 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Lag release med denne taggen (f.eks. v0.1.0). La stå tom for bare å bygge."
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
   windows:
+    env:
+      # Tagg for release: fra pushet tagg eller fra manuell kjøring.
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release || '' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,11 +52,11 @@ jobs:
         run: npm test
 
       - name: Bygg installer
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ env.RELEASE_TAG == '' }}
         run: npx tauri build
 
       - name: Last opp installer
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ env.RELEASE_TAG == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: Blad-installer
@@ -54,12 +64,16 @@ jobs:
           if-no-files-found: error
 
       - name: Bygg og publiser release
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ env.RELEASE_TAG != '' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Blad ${{ github.ref_name }}"
-          releaseBody: "Last ned og kjør Blad_*_x64-setup.exe for å installere."
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "Blad ${{ env.RELEASE_TAG }}"
+          releaseCommitish: ${{ github.sha }}
+          releaseBody: |
+            **Installer:** last ned `Blad_*_x64-setup.exe` under «Assets» og kjør den. Den installeres for din bruker, uten administratorrettigheter. Windows kan advare fordi installeren ikke er signert: velg «Mer informasjon» → «Kjør likevel».
+
+            Se [README](https://github.com/${{ github.repository }}#readme) for funksjoner og tastatursnarveier.
           releaseDraft: false
