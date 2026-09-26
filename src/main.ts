@@ -17,6 +17,8 @@ import {
   writeFile,
 } from "./platform";
 import { Presentation } from "./present";
+import { openPrintDialog } from "./print";
+import { Search } from "./search";
 import { busy, button, errorMessage, h, icon, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type ZoomMode } from "./viewer";
 
@@ -52,6 +54,7 @@ const store = {
 // ---------- Oppsett av grensesnittet ----------
 
 const viewer = new Viewer();
+const search = new Search(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -65,6 +68,7 @@ const docBtn = (b: HTMLButtonElement) => (docButtons.push(b), b);
 const viewControls = h(
   "span",
   { class: "view-controls" },
+  docBtn(button("", "search", () => search.open(), { title: "Søk i teksten (Ctrl+F)", className: "ghost" })),
   docBtn(button("", "sidebar", () => toggleSidebar(), { title: "Vis/skjul miniatyrer (Ctrl+B)", className: "ghost" })),
   h("span", { class: "page-nav" }, pageInput, pageTotal),
   h("span", { class: "sep" }),
@@ -83,6 +87,7 @@ const toolbar = h(
   button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)" }),
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
+  docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
   h("span", { class: "spacer" }),
   viewControls,
   docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", primary: true })),
@@ -98,6 +103,8 @@ function emptyState(): HTMLElement {
   const shortcuts: Array<[string, string]> = [
     ["Ctrl+O", "Åpne"],
     ["Ctrl+L", "Presenter i fullskjerm"],
+    ["Ctrl+F", "Søk i teksten"],
+    ["Ctrl+P", "Skriv ut"],
     ["Ctrl+M", "Slå sammen PDF-er"],
     ["Ctrl+K", "Sorter sider"],
     ["Ctrl+E", "Eksporter til PNG"],
@@ -285,8 +292,9 @@ function showCurrent(startPage = 0): void {
     refresh();
     return;
   }
-  content.replaceChildren(viewer.el);
+  content.replaceChildren(viewer.el, search.el);
   if (viewer.document !== current.doc) {
+    search.setDocument(current.doc);
     const z = store.get("zoom");
     viewer.setZoom(z === "width" || z === "page" ? z : "auto");
     void viewer.setDocument(current.doc, startPage).then(() => viewer.el.focus());
@@ -339,6 +347,7 @@ function startOrganize(): void {
       showCurrent();
     },
   });
+  if (search.isOpen) search.close();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -355,6 +364,11 @@ function startMerge(): void {
   openMergeDialog(current && isTauri ? [current.path] : [], (path) => void openPath(path));
 }
 
+function startPrint(): void {
+  if (!current || organizer) return;
+  openPrintDialog(current.doc, viewer.current);
+}
+
 function startExport(): void {
   if (!current || organizer) return;
   openExportDialog(current.doc, current.path, viewer.current);
@@ -365,6 +379,9 @@ function startExport(): void {
 const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
 
 window.addEventListener("keydown", (e) => {
+  // Aldri la nettleserdelen skrive ut selve programvinduet.
+  const printKey = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p";
+  if (printKey) e.preventDefault();
   if (presentation?.active || document.querySelector(".backdrop")) return;
   if (organizer) {
     if (organizer.handleKey(e)) e.preventDefault();
@@ -376,7 +393,12 @@ window.addEventListener("keydown", (e) => {
   if (ctrl && k === "o") void openDialog();
   else if (ctrl && k === "m") startMerge();
   else if ((ctrl && k === "l") || e.key === "F5") void startPresentation();
+  // Ctrl+P fanges alltid, ellers ville nettleserdelen skrevet ut selve programvinduet.
+  else if (ctrl && k === "p") startPrint();
   else if (!current) handled = false;
+  else if (ctrl && k === "f") search.open();
+  else if (e.key === "F3") search.step(e.shiftKey ? -1 : 1);
+  else if (e.key === "Escape" && search.isOpen) search.close();
   else if (ctrl && k === "k") startOrganize();
   else if (ctrl && k === "e") startExport();
   else if (ctrl && k === "b") toggleSidebar();

@@ -10,11 +10,18 @@ const MAX_SCALE = 8;
 /** pdf.js regner i punkter (1/72"), skjermen i CSS-piksler (1/96"). 100 % = faktisk størrelse. */
 export const CSS_UNITS = 96 / 72;
 
+/** Det søket trenger fra et ferdig tekstlag: ett span per tekstbit. */
+export interface TextLayerInfo {
+  textDivs: HTMLElement[];
+  textContentItemsStr: string[];
+}
+
 interface Rendered {
   scale: number;
   canvas: HTMLCanvasElement;
   cancel?: () => void;
-  text?: { cancel: () => void };
+  text?: { cancel: () => void } & TextLayerInfo;
+  textReady?: boolean;
 }
 
 export class Viewer {
@@ -32,6 +39,8 @@ export class Viewer {
   scale = 1;
   current = 0;
   onChange: () => void = () => {};
+  /** Kalles når tekstlaget for en side er klart (brukes til søketreff). */
+  onTextLayer: ((page: number, layer: TextLayerInfo) => void) | null = null;
 
   constructor() {
     this.pagesEl = document.createElement("div");
@@ -299,7 +308,26 @@ export class Viewer {
       viewport: page.getViewport({ scale }),
     });
     entry.text = textLayer;
-    textLayer.render().catch(() => {});
+    entry.textReady = false;
+    textLayer
+      .render()
+      .then(() => {
+        if (entry.text !== textLayer || this.rendered.get(i) !== entry) return;
+        entry.textReady = true;
+        this.onTextLayer?.(i, textLayer);
+      })
+      .catch(() => {});
+  }
+
+  /** Tekstlaget for en side, hvis siden er tegnet og teksten er klar. */
+  textLayer(i: number): TextLayerInfo | null {
+    const r = this.rendered.get(i);
+    return r?.textReady && r.text ? r.text : null;
+  }
+
+  /** Kjører `onTextLayer` på nytt for alle tegnede sider (f.eks. nytt søk). */
+  refreshTextLayers(): void {
+    for (const [i, r] of this.rendered) if (r.textReady && r.text) this.onTextLayer?.(i, r.text);
   }
 }
 

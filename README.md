@@ -14,6 +14,8 @@ Navnet spiller på *blad* som i en side i et dokument, og et lett blad.
 | Slå sammen flere PDF-er | **Ctrl+M**. Velg filer, sett rekkefølgen og lagre som ny PDF. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte |
 | Endre rekkefølge på sider | **Ctrl+K**. Dra sidene dit du vil ha dem. **Ctrl+S** lagrer tilbake i samme fil, **Ctrl+Shift+S** lagrer som ny fil. Du kan også rotere (Ctrl+R) og slette (Delete) sider, og angre (Ctrl+Z) |
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
+| Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige. Søket starter på siden du står på, og telleren viser «3 av 17» |
+| Skrive ut | **Ctrl+P**. Velg alle sider, denne siden eller et utvalg, og standard eller høy kvalitet. Så kommer Windows' vanlige utskriftsdialog, der du velger skriver og antall kopier |
 
 Andre snarveier: Ctrl+G gå til side · Ctrl+B vis/skjul miniatyrer ·
 Ctrl+pluss/minus eller Ctrl+musehjul for zoom · Ctrl+0 automatisk zoom ·
@@ -62,6 +64,8 @@ blad/
 │   ├── organize.ts  «Sorter sider»
 │   ├── merge.ts     «Slå sammen»
 │   ├── exportpng.ts eksport til PNG
+│   ├── search.ts    tekstsøk med markering av treff
+│   ├── print.ts     utskrift
 │   ├── edit.ts      skriving av PDF (pdf-lib)
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)

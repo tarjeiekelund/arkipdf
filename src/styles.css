@@ -893,3 +893,96 @@ input.range {
   font-size: 20px;
   font-weight: 600;
 }
+
+/* ---------- Søk ---------- */
+
+.searchbar {
+  position: absolute;
+  top: 10px;
+  right: 24px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.searchbar .search-icon {
+  display: flex;
+  color: var(--muted);
+}
+
+.searchbar input {
+  width: 240px;
+  border-color: transparent;
+}
+
+.searchbar.no-match input {
+  color: var(--danger);
+}
+
+.search-count {
+  min-width: 70px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.textLayer .highlight {
+  position: static;
+  margin: -1px;
+  padding: 1px;
+  border-radius: 3px;
+  background: rgb(255 204 0 / 0.45);
+}
+
+.textLayer .highlight.selected {
+  background: rgb(255 128 0 / 0.6);
+}
+
+/* ---------- Utskrift ---------- */
+
+#print-container {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  body > *:not(#print-container) {
+    display: none !important;
+  }
+
+  #print-container {
+    display: block;
+  }
+
+  .print-page {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    break-after: page;
+  }
+
+  .print-page:last-child {
+    break-after: auto;
+  }
+
+  .print-page img {
+    max-width: 100%;
+    max-height: 100%;
+  }
+}
