@@ -1,0 +1,65 @@
+# Bygger Windows-installeren for Blad.
+#
+# - Hver push og pull request gir en installer som artefakt på kjøringen
+#   (Actions → «Windows-bygg» → Artifacts).
+# - En tagg som «v0.1.0» lager i tillegg en GitHub-release med
+#   installeren vedlagt.
+
+name: Windows-bygg
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Installer avhengigheter
+        run: npm ci
+
+      - name: Selvtest av PDF-redigering
+        run: npm test
+
+      - name: Bygg installer
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: npx tauri build
+
+      - name: Last opp installer
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blad-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Bygg og publiser release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Blad ${{ github.ref_name }}"
+          releaseBody: "Last ned og kjør Blad_*_x64-setup.exe for å installere."
+          releaseDraft: false

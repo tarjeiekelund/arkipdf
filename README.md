@@ -28,9 +28,9 @@ Tekst i PDF-en kan markeres og kopieres. Passordbeskyttede PDF-er kan åpnes
 ## Installere på Windows
 
 Installeren bygges automatisk av GitHub Actions
-(`.github/workflows/blad-windows.yml`):
+(`.github/workflows/windows.yml`):
 
-1. Gå til **Actions → «Blad – Windows-bygg»** i GitHub og åpne siste kjøring.
+1. Gå til **Actions → «Windows-bygg»** i GitHub og åpne siste kjøring.
 2. Last ned artefakten **Blad-installer** og pakk ut zip-fila.
 3. Kjør `Blad_0.1.0_x64-setup.exe`. Den installeres for din bruker, uten
    administratorrettigheter, og registrerer seg som et program som kan åpne
@@ -39,7 +39,7 @@ Installeren bygges automatisk av GitHub Actions
 Vil du gjøre Blad til standardprogram for PDF: høyreklikk en PDF →
 *Åpne med* → *Velg en annen app* → **Blad** → *Alltid*.
 
-Lager du en tagg som `blad-v0.1.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.1.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ## Teknikk
@@ -56,7 +56,7 @@ lagt ut som en GitHub-release.
   originalen, så fila aldri blir stående halvskrevet.
 
 ```
-blad/
+.
 ├── src/             grensesnitt (TypeScript, uten rammeverk)
 │   ├── main.ts      oppstart, verktøylinje, tastatursnarveier
 │   ├── viewer.ts    kontinuerlig sidevisning med lat tegning
@@ -76,7 +76,6 @@ blad/
 Krever Node 22 og Rust (stable).
 
 ```bash
-cd blad
 npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
