@@ -11,10 +11,12 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 
 | Funksjon | Hvordan |
 | --- | --- |
-| Åpne PDF-er, store som små | **Ctrl+O**, dra fila inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. ArkiPDF husker hvilken side du var på |
+| Åpne PDF-er, store som små | **Ctrl+O** (du kan velge flere), dra filer inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. ArkiPDF husker hvilken side du var på |
+| Faner | Hvert dokument åpnes i sin egen fane, i samme vindu, også når du dobbeltklikker flere PDF-er i Utforsker. Hver fane husker side, zoom, rotasjon og mål. **Ctrl+Tab** / **Ctrl+Shift+Tab** (eller Ctrl+PageDown/PageUp) bytter fane, **Ctrl+W** eller midtre musetast lukker. En prikk på fanen viser at noe ikke er lagret, og ArkiPDF spør før slike faner lukkes |
 | Presentere i fullskjerm | **Ctrl+L** (eller F5). Se [Presentasjon](#presentasjon) |
-| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
-| Endre rekkefølge på sider | **Ctrl+K**. Dra sidene dit du vil ha dem. **Ctrl+S** lagrer tilbake i samme fil, **Ctrl+Shift+S** lagrer som ny fil. Du kan også rotere (Ctrl+R) og slette (Delete) sider, og angre (Ctrl+Z). Glidebryteren gir større miniatyrer |
+| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Resultatet åpnes i en ny fane. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
+| Endre rekkefølge på sider | Dra miniatyrene i sidepanelet dit du vil ha dem. Ctrl-klikk og Shift-klikk velger flere sider, som dras samlet. **Delete** sletter valgte sider, og **Ctrl+Z** angrer. Endringene gjelder med én gang, men skrives til fila først når du lagrer: fanen får en prikk, og stripa over dokumentet har **Lagre** (Ctrl+S), **Lagre som…** (Ctrl+Shift+S) og **Forkast**. Mål følger sidene sine |
+| Sortere i rutenett | **Ctrl+K** («Sorter sider») viser alle sidene i et rutenett med store miniatyrer, der du også kan rotere (Ctrl+R). **Bruk** tar endringene i bruk og går tilbake til vanlig visning; de lagres som over |
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
@@ -165,7 +167,7 @@ lagt ut som en GitHub-release.
 │   ├── print.ts     utskrift
 │   ├── edit.ts      skriving av PDF (pdf-lib)
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
-├── icon/            kildefiler for programikonet
+├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)
 ```
 
@@ -178,11 +180,11 @@ npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
 npm test             # selvtester: sortering, sammenslåing, måling, snapping, lagring
-npm run icons        # lager programikonene på nytt fra icon/*.svg
+npm run icons        # lager programikonene på nytt fra branding/*.svg
 npx tauri build      # installer i src-tauri/target/release/bundle/nsis/
 ```
 
 I nettleseren (`npm run dev`) brukes en enkel reserve: filer velges med
 nettleserens filvelger, og lagrede filer lastes ned.
 
-Ikonet lages fra `icon/app-icon.svg` med `npm run icons`. De minste størrelsene (16–48 px) tegnes fra egne, forenklede filer i samme mappe, så ikonet er tydelig i Utforsker og oppgavelinja.
+Grafisk profil (farger, ordbilde og ikon) er beskrevet i `branding/BRAND.md`. Ikonet lages fra `branding/arkipdf-ikon.svg` med `npm run icons`; 16 og 24 px tegnes fra egne, pikseltilpassede filer i samme mappe, så ikonet er skarpt i Utforsker og oppgavelinja.

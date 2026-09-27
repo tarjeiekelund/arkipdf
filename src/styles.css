@@ -1,22 +1,25 @@
 :root {
-  /* Nøytral ramme rundt dokumentet; grønt brukes bare som signal:
-     det som er valgt eller aktivt, og hovedhandlingen der og da. */
-  --bg: #f5f5f5;
+  /* Grafisk profil: branding/BRAND.md. Nøytral ramme rundt dokumentet; grønt
+     brukes bare som signal: det som er valgt eller aktivt, og hovedhandlingen. */
+  --accent: #1d5e4d;
+  --accent-hover: #123c31;
+  --bg: #f4f3ef;
   --surface: #ffffff;
-  --chrome: #fafafa;
-  --surface-2: #efefef;
-  --canvas-bg: #c9cacb;
-  --text: #1c1c1c;
-  --muted: #666666;
-  --border: #dcdcdc;
-  --accent: #1f6f5c;
-  --accent-hover: #185a4a;
-  --accent-soft: #dcefe8;
-  --accent-line: #b5dccd;
-  --accent-strong: #155446;
+  --ink: #141816;
+  --muted: #5b625e;
+  --line: #d9d8d2;
+  /* Avledet fra profilen. */
+  --text: var(--ink);
+  --border: var(--line);
+  --chrome: #ffffff;
+  --surface-2: #ecebe6;
+  --canvas-bg: #c8c7c1;
+  --accent-soft: #dbe8e3;
+  --accent-line: #aecbc0;
+  --accent-strong: #123c31;
   --accent-text: #ffffff;
   --danger: #b3261e;
-  --success: #1f6f5c;
+  --success: #1d5e4d;
   --shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 4px 14px rgb(0 0 0 / 0.08);
   --radius: 8px;
   color-scheme: light;
@@ -24,16 +27,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1e1e1e;
-    --surface: #2a2a2a;
-    --chrome: #242424;
-    --surface-2: #343434;
-    --canvas-bg: #121212;
-    --text: #ebebeb;
-    --muted: #a3a3a3;
-    --border: #3d3d3d;
-    --accent: #4fb596;
-    --accent-hover: #63c6a7;
+    --bg: #1b1c1a;
+    --surface: #262724;
+    --chrome: #21221f;
+    --surface-2: #31322e;
+    --canvas-bg: #111210;
+    --ink: #ecebe6;
+    --muted: #a6aaa6;
+    --line: #3a3b37;
+    --accent: #5fb39a;
+    --accent-hover: #7cc6ae;
     --accent-soft: #23443a;
     --accent-line: #2f5d4f;
     --accent-strong: #8fdcc2;
@@ -169,6 +172,113 @@ select:focus-visible,
   font-size: 15px;
 }
 
+/* ---------- Faner ---------- */
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 8px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+
+.tabbar.locked {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.doc-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 90px;
+  max-width: 240px;
+  height: 32px;
+  margin-bottom: -1px;
+  padding: 0 6px 0 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: default;
+  user-select: none;
+}
+
+.doc-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.doc-tab.active {
+  background: var(--chrome);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.doc-tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+
+.tab-close .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Ulagret: en prikk der lukkeknappen er, til man holder musa over fanen. */
+.doc-tab-dot {
+  display: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px;
+  border-radius: 50%;
+  background: var(--text);
+  flex: none;
+}
+
+.doc-tab.dirty:not(:hover) .doc-tab-dot {
+  display: block;
+}
+
+.doc-tab.dirty:not(:hover) .tab-close {
+  display: none;
+}
+
+.tab-new {
+  height: 28px;
+  margin: 0 0 2px 2px;
+  padding: 0 6px;
+  flex: none;
+}
+
 /* ---------- Verktøylinje ---------- */
 
 .toolbar,
@@ -286,6 +396,7 @@ main {
 }
 
 .thumb-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -330,6 +441,35 @@ main {
 
 .thumb-item.active .thumb-img {
   box-shadow: 0 0 0 2px var(--chrome), 0 0 0 5px var(--accent);
+}
+
+/* Valgte sider (kan dras til nytt sted eller slettes med Delete). */
+.thumb-item.selected {
+  background: var(--accent-soft);
+}
+
+.thumb-item.selected:hover {
+  background: var(--accent-soft);
+}
+
+.sidebar.dragging-pages .thumb-item {
+  cursor: grabbing;
+}
+
+.sidebar.dragging-pages .thumb-item.selected {
+  opacity: 0.55;
+}
+
+/* Viser hvor sidene havner når de slippes. */
+.thumb-drop {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .thumb-item.active {
@@ -518,8 +658,34 @@ main {
 
 .empty-icon svg {
   display: block;
-  width: 72px;
-  height: 72px;
+  width: 88px;
+  height: 88px;
+}
+
+/* Ordbildet (branding/BRAND.md, retning A «Tett og tung»). */
+.wordmark {
+  font-family: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.wordmark__pdf {
+  letter-spacing: -0.065em;
+}
+
+/* Små størrelser (under ca. 20 px): slipp opp sporingen. */
+.wordmark--small,
+.wordmark--small .wordmark__pdf {
+  letter-spacing: -0.03em;
+}
+
+.empty h1.wordmark {
+  margin: 4px 0 0;
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
 }
 
 .shortcuts {
@@ -1624,7 +1790,7 @@ input.range {
   border-radius: 5px;
   background: #fff;
   box-shadow: 0 0 0 1.5px #d9480f, 0 2px 6px rgb(0 0 0 / 0.18);
-  color: #1b1f1e;
+  color: #141816;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.3;
@@ -1637,7 +1803,7 @@ input.range {
 .measure-label small {
   font-weight: 500;
   font-size: 11px;
-  color: #5d6663;
+  color: #5b625e;
 }
 
 .viewer.m-drawing .measure-label {

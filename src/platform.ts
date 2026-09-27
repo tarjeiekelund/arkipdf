@@ -6,6 +6,7 @@ import { availableMonitors, currentMonitor, getCurrentWindow, type Monitor } fro
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -108,6 +109,15 @@ export async function startupFiles(): Promise<{ files: string[]; merge: boolean 
   if (!isTauri) return { files: [], merge: false };
   const [merge, files] = await invoke<[boolean, string[]]>("startup_files");
   return { files, merge };
+}
+
+/**
+ * Filer som åpnes mens ArkiPDF allerede kjører (dobbeltklikk, «Send til»):
+ * den nye oppstarten sender dem hit i stedet for å åpne et nytt vindu.
+ */
+export function onLaunchFiles(handler: (launch: { files: string[]; merge: boolean }) => void): void {
+  if (!isTauri) return;
+  void listen<[boolean, string[]]>("open-files", (e) => handler({ merge: e.payload[0], files: e.payload[1] }));
 }
 
 /** `confirm` avgjør om vinduet får lukkes (f.eks. når noe ikke er lagret). */
