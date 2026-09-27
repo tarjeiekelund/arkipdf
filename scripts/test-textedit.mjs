@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { groupLines, lineContains, loadForRuns, parseContent, replaceLine, textRuns } from "../src/textedit-pdf.ts";
 
-const ttf = readFileSync("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
+const ttf = readFileSync(new URL("../node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf", import.meta.url));
 const loadFont = async () => new Uint8Array(ttf);
 
 async function make() {
