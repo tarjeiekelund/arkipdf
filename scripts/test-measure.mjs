@@ -5,7 +5,9 @@ import {
   centroid,
   formatArea,
   formatLength,
+  insidePolygon,
   metersPerPointForScale,
+  pathDistance,
   pathLength,
   polygonArea,
   readPdfScales,
@@ -27,6 +29,14 @@ assert.equal(scaleLabel(k), "1:100");
 assert.equal(formatLength(5.6444, "m"), "5,64 m");
 assert.equal(formatLength(0.85, "mm"), "850 mm");
 assert.equal(formatArea(23.891), "23,89 m²");
+
+// Treff på mål (for å velge og dra dem).
+assert.equal(insidePolygon([80, 60], room), true);
+assert.equal(insidePolygon([200, 60], room), false);
+near(pathDistance([80, 5], room, true), 5);
+near(pathDistance([-3, 60], room, true), 3);
+assert.ok(pathDistance([-3, 60], room, false) > 50); // åpen: venstre side mangler
+near(pathDistance([200, 0], [[0, 0], [160, 0]]), 40);
 
 // Shift låser til nærmeste 45°.
 const s = snap45([0, 0], [100, 8]);

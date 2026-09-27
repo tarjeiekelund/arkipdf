@@ -53,8 +53,11 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
   markør viser hva punktet festes til. Hold **Alt** for å slå det av
   midlertidig, eller fjern haken ved «Fest til tegningen».
 - **Shift** låser retningen til 0°, 45° og 90°.
-- Backspace fjerner siste punkt, Esc avbryter. Klikk et mål for å velge det,
-  og trykk Delete for å fjerne det. Ctrl+Z fjerner det siste målet.
+- Backspace fjerner siste punkt, Esc avbryter.
+- **Endre et mål:** klikk etiketten (eller inne i et areal) for å velge målet.
+  Dra i punktene for å flytte dem; de festes til tegningen som når du måler.
+  Dra etiketten for å flytte hele målet. Delete eller Backspace sletter det
+  valgte målet, og Ctrl+Z angrer siste endring.
 - Lista nederst til høyre viser alle målene med sum av areal og lengder.
   **Kopier som tabell** gir en tabell du kan lime rett inn i Excel.
 - Mellomrom og midtre musetast flytter tegningen også mens du måler.

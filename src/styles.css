@@ -1492,7 +1492,11 @@ input.range {
   cursor: help;
 }
 
+/* Hjelpeteksten krymper i stedet for å brekke linja: ellers endres høyden
+   på visningen, og tegningen hopper mens man måler. */
 .measure-hint {
+  flex: 1 1 0;
+  text-align: right;
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
@@ -1521,6 +1525,24 @@ input.range {
 
 .viewer.measuring .linkLayer a {
   pointer-events: none;
+}
+
+/* Ingen tekstmarkering mens man måler eller drar i mål. */
+.viewer.measuring .page {
+  user-select: none;
+}
+
+/* Pekeren viser hva som kan dras: punkter på valgt mål, eller hele målet. */
+.viewer.measuring[data-mhover="node"] {
+  cursor: move;
+}
+
+.viewer.measuring[data-mhover="body"] {
+  cursor: pointer;
+}
+
+.viewer.measuring.m-dragging {
+  cursor: grabbing;
 }
 
 .measureLayer {
@@ -1583,7 +1605,12 @@ input.range {
   box-shadow: 0 0 0 2px #d9480f;
 }
 
+/* Punktene på valgt mål er håndtak som kan dras. */
 .measure-dot.selected {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 2px;
   box-shadow: 0 0 0 2px #1c7ed6;
 }
 
