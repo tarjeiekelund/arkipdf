@@ -1,9 +1,11 @@
-// «Slå sammen»: velg filer, bestem rekkefølge og lagre som én PDF.
+// «Slå sammen»: velg filer, bestem rekkefølge og sett dem sammen til én PDF.
+// Resultatet åpnes som et ulagret dokument, så det kan ses over og justeres
+// før det lagres.
 import { mergePdfs } from "./edit";
-import { baseName, dirName, joinPath, pickPdfs, pickSavePath, readFile, writeFile } from "./platform";
+import { baseName, dirName, joinPath, pickPdfs, readFile } from "./platform";
 import { busy, button, errorMessage, h, icon, modal, nextFrame, toast } from "./ui";
 
-export function openMergeDialog(initial: string[], onMerged: (path: string) => void): void {
+export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array, suggestedPath: string) => void): void {
   const files = [...initial];
   const list = h("ol", { class: "file-list" });
   const empty = h("p", { class: "muted empty-list" }, "Ingen filer valgt ennå.");
@@ -48,10 +50,8 @@ export function openMergeDialog(initial: string[], onMerged: (path: string) => v
     render();
   };
 
-  const mergeBtn = button("Slå sammen og lagre…", "merge", async () => {
-    const first = files[0];
-    const target = await pickSavePath(joinPath(dirName(first), "Sammenslått.pdf"), "Lagre sammenslått PDF");
-    if (!target) return;
+  const mergeBtn = button("Slå sammen", "merge", async () => {
+    const target = joinPath(dirName(files[0]), "Sammenslått.pdf");
     close();
     const b = busy("Leser filer…");
     try {
@@ -64,10 +64,7 @@ export function openMergeDialog(initial: string[], onMerged: (path: string) => v
       }
       const out = await mergePdfs(loaded, (n) => b.update(`Slår sammen (${n} av ${files.length})`, 0.5 + n / files.length / 2));
       if (b.cancelled()) return;
-      b.update("Lagrer…");
-      await writeFile(target, out);
-      toast(`Lagret ${baseName(target)}`, "success");
-      onMerged(target);
+      onMerged(out, target);
     } catch (e) {
       toast(`Kunne ikke slå sammen: ${errorMessage(e)}`, "error");
     } finally {
@@ -78,7 +75,7 @@ export function openMergeDialog(initial: string[], onMerged: (path: string) => v
   const body = h(
     "div",
     { class: "merge" },
-    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Du kan også dra PDF-filer inn i vinduet."),
+    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Du ser resultatet før du lagrer. Du kan også dra PDF-filer inn i vinduet."),
     list,
     empty,
     button("Legg til filer…", "plus", () => void add()),

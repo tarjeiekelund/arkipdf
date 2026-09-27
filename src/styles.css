@@ -659,6 +659,7 @@ main {
 
 .subbar strong {
   font-size: 15px;
+  white-space: nowrap;
 }
 
 .subbar .hint {

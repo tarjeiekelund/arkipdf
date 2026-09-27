@@ -22,10 +22,13 @@ export class Organizer {
   private marker: HTMLDivElement;
   private saveBtn: HTMLButtonElement;
 
-  constructor(pageCount: number, private readonly thumbs: ThumbCache, private readonly cb: OrganizeCallbacks) {
+  /** `unsaved`: dokumentet finnes ikke som fil ennå, så «Lagre» blir «Bruk». */
+  constructor(pageCount: number, private readonly thumbs: ThumbCache, private readonly cb: OrganizeCallbacks, unsaved = false) {
     this.items = Array.from({ length: pageCount }, (_, i) => ({ src: i, rot: 0 }));
     this.status = h("span", { class: "muted" });
-    this.saveBtn = button("Lagre", "save", () => void this.cb.save(this.items), { primary: true, title: "Lagre endringene i fila (Ctrl+S)" });
+    this.saveBtn = unsaved
+      ? button("Bruk", "save", () => void this.cb.save(this.items), { primary: true, title: "Bruk endringene. Dokumentet lagres først når du velger «Lagre…» (Ctrl+S)" })
+      : button("Lagre", "save", () => void this.cb.save(this.items), { primary: true, title: "Lagre endringene i fila (Ctrl+S)" });
 
     const bar = h(
       "div",
@@ -40,7 +43,7 @@ export class Organizer {
       this.sizeSlider(),
       h("span", { class: "sep" }),
       this.status,
-      button("Avbryt", null, () => this.cb.close(), { title: "Lukk uten å lagre (Esc)" }),
+      button("Avbryt", null, () => this.cb.close(), { title: unsaved ? "Lukk uten å bruke endringene (Esc)" : "Lukk uten å lagre (Esc)" }),
       button("Lagre som…", null, () => void this.cb.saveAs(this.items), { title: "Lagre som ny fil (Ctrl+Shift+S)" }),
       this.saveBtn,
     );

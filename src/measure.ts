@@ -101,7 +101,7 @@ export class Measure {
   /** Endringer som ikke er lagret i fila. */
   dirty = false;
   /** Kalles med nye filbytes når målene skal lagres. */
-  onSave: ((bytes: Uint8Array) => Promise<void>) | null = null;
+  onSave: ((bytes: Uint8Array) => Promise<boolean | void>) | null = null;
   private saveBtn: HTMLButtonElement;
 
   private kindButtons: Record<MeasureKind, HTMLButtonElement>;
@@ -247,8 +247,8 @@ export class Measure {
     });
     try {
       const out = await writeMeasurements(this.bytesSource(), items, this.pageScale, this.defaultScale);
-      this.dirty = false;
-      await this.onSave(out);
+      // `false`: brukeren avbrøt (f.eks. valg av filnavn), målene er fortsatt ulagret.
+      if ((await this.onSave(out)) !== false) this.dirty = false;
     } catch (e) {
       toast(`Kunne ikke lagre målene: ${errorMessage(e)}`, "error");
     }
