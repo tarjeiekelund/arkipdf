@@ -1,14 +1,19 @@
 :root {
-  --bg: #f4f5f4;
+  /* Nøytral ramme rundt dokumentet; grønt brukes bare som signal:
+     det som er valgt eller aktivt, og hovedhandlingen der og da. */
+  --bg: #f5f5f5;
   --surface: #ffffff;
-  --surface-2: #f0f2f1;
-  --canvas-bg: #dfe2e0;
-  --text: #1b1f1e;
-  --muted: #5d6663;
-  --border: #d5dad8;
+  --chrome: #fafafa;
+  --surface-2: #efefef;
+  --canvas-bg: #c9cacb;
+  --text: #1c1c1c;
+  --muted: #666666;
+  --border: #dcdcdc;
   --accent: #1f6f5c;
   --accent-hover: #185a4a;
-  --accent-soft: #d8ece5;
+  --accent-soft: #dcefe8;
+  --accent-line: #b5dccd;
+  --accent-strong: #155446;
   --accent-text: #ffffff;
   --danger: #b3261e;
   --success: #1f6f5c;
@@ -19,16 +24,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1d201f;
-    --surface: #262a29;
-    --surface-2: #2f3432;
-    --canvas-bg: #151716;
-    --text: #e9eceb;
-    --muted: #a0aaa6;
-    --border: #3a403e;
+    --bg: #1e1e1e;
+    --surface: #2a2a2a;
+    --chrome: #242424;
+    --surface-2: #343434;
+    --canvas-bg: #121212;
+    --text: #ebebeb;
+    --muted: #a3a3a3;
+    --border: #3d3d3d;
     --accent: #4fb596;
     --accent-hover: #63c6a7;
     --accent-soft: #23443a;
+    --accent-line: #2f5d4f;
+    --accent-strong: #8fdcc2;
     --accent-text: #0e1a16;
     --danger: #f2837a;
     --success: #4fb596;
@@ -52,6 +60,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Tall med fast bredde: sidenummer, zoom og mål hopper ikke når de endres. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -141,6 +151,17 @@ select:focus-visible,
   background: var(--surface-2);
 }
 
+/* Aktivt verktøy eller modus (Mål, markering, håndverktøy). */
+.btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-strong);
+}
+
+.btn.active:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
 .btn.big {
   height: 44px;
   padding: 0 22px;
@@ -153,12 +174,28 @@ select:focus-visible,
 .subbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 8px 12px;
-  background: var(--surface);
+  background: var(--chrome);
   border-bottom: 1px solid var(--border);
   flex: none;
   min-width: 0;
+}
+
+/* Verktøylinja: knapper uten ramme, grupper skilt med 16 px (4 + strek + 4 + marg). */
+.toolbar .btn {
+  border-color: transparent;
+  background: transparent;
+  padding: 0 8px;
+}
+
+.toolbar .btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.toolbar .btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 
 .spacer {
@@ -169,13 +206,13 @@ select:focus-visible,
   width: 1px;
   height: 22px;
   background: var(--border);
-  margin: 0 4px;
+  margin: 0 6px;
 }
 
 .view-controls {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .page-nav {
@@ -204,17 +241,13 @@ select:focus-visible,
   color: var(--muted);
 }
 
-/* Smale vinduer: bare ikoner i verktøylinja (verktøytips viser navnet). */
-@media (max-width: 1500px) {
-  .toolbar .btn:not(.split-main) span {
-    display: none;
-  }
-  .toolbar .btn:not(.ghost):not(.split-main):not(.split-caret) {
-    padding: 0 9px;
-  }
+/* Tekst bare på de viktigste knappene; resten har verktøytips. */
+.toolbar .btn:not(.keep-label):not(.split-main) span {
+  display: none;
 }
 
 @media (max-width: 1100px) {
+  .toolbar .keep-label span,
   .subbar .hint {
     display: none;
   }
@@ -247,7 +280,7 @@ main {
 
 .sidebar {
   flex: none;
-  background: var(--surface);
+  background: var(--chrome);
   border-right: 1px solid var(--border);
 }
 
@@ -295,7 +328,7 @@ main {
 }
 
 .thumb-item.active .thumb-img {
-  box-shadow: 0 0 0 3px var(--accent);
+  box-shadow: 0 0 0 2px var(--chrome), 0 0 0 5px var(--accent);
 }
 
 .thumb-item.active {
@@ -454,6 +487,11 @@ main {
 
 /* ---------- Startside og lasting ---------- */
 
+/* Startsiden ligger på den lyse bakgrunnen; den mørkere flaten er for dokumenter. */
+.content:has(> .empty) {
+  background: var(--bg);
+}
+
 .empty,
 .loading {
   margin: auto;
@@ -477,10 +515,10 @@ main {
   font-size: 15px;
 }
 
-.empty-icon .icon {
-  width: 56px;
-  height: 56px;
-  color: var(--accent);
+.empty-icon svg {
+  display: block;
+  width: 72px;
+  height: 72px;
 }
 
 .shortcuts {
@@ -1159,24 +1197,21 @@ input.range {
 
 .tool-group {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-
-.btn.tool {
-  height: 30px;
-}
-
-.btn.tool.active {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: 0 0 0 1px var(--border);
+  gap: 4px;
 }
 
 .split {
   display: inline-flex;
+}
+
+/* «Presenter» er en vanlig knapp med ramme, ikke grønn: den er ikke neste steg. */
+.toolbar .split .btn {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.toolbar .split .btn:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .split .split-main {
@@ -1184,11 +1219,13 @@ input.range {
   border-bottom-right-radius: 0;
 }
 
-.split .split-caret {
+.toolbar .split .split-caret {
   padding: 0 6px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left: 1px solid rgb(255 255 255 / 0.35);
+  border-left-color: transparent;
+  margin-left: -1px;
+  box-shadow: inset 1px 0 0 var(--border);
 }
 
 .popover {
@@ -1253,19 +1290,18 @@ input.range {
 
 .sidebar-tabs {
   display: flex;
-  gap: 2px;
-  margin: 8px 8px 0;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--surface-2);
+  gap: 16px;
+  margin: 8px 14px 0;
+  border-bottom: 1px solid var(--border);
   flex: none;
 }
 
 .tab {
-  flex: 1;
-  height: 28px;
+  height: 30px;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   background: none;
   color: var(--muted);
   font: inherit;
@@ -1274,10 +1310,13 @@ input.range {
   cursor: pointer;
 }
 
-.tab.active {
-  background: var(--surface);
+.tab:hover {
   color: var(--text);
-  box-shadow: 0 0 0 1px var(--border);
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--text);
 }
 
 .thumb-list,

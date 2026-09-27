@@ -153,6 +153,7 @@ lagt ut som en GitHub-release.
 │   ├── print.ts     utskrift
 │   ├── edit.ts      skriving av PDF (pdf-lib)
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
+├── icon/            kildefiler for programikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)
 ```
 
@@ -165,10 +166,11 @@ npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
 npm test             # selvtester: sortering, sammenslåing, måling, snapping, lagring
+npm run icons        # lager programikonene på nytt fra icon/*.svg
 npx tauri build      # installer i src-tauri/target/release/bundle/nsis/
 ```
 
 I nettleseren (`npm run dev`) brukes en enkel reserve: filer velges med
 nettleserens filvelger, og lagrede filer lastes ned.
 
-Ikonet lages fra `app-icon.svg` med `npx tauri icon app-icon.svg`.
+Ikonet lages fra `icon/app-icon.svg` med `npm run icons`. De minste størrelsene (16–48 px) tegnes fra egne, forenklede filer i samme mappe, så ikonet er tydelig i Utforsker og oppgavelinja.

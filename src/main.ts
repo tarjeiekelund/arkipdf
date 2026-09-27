@@ -24,7 +24,7 @@ import {
 import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
 import { Search } from "./search";
-import { busy, button, errorMessage, h, icon, modal, toast } from "./ui";
+import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
 
 interface OpenDoc {
@@ -95,7 +95,7 @@ const viewControls = h(
   h("span", { class: "sep" }),
 );
 
-const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)" }));
+const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
 measure.onChange = () => refresh();
 measure.bytesSource = () => current!.bytes;
 // Lagre mål: skriv fila og åpne den på nytt på samme side, med måling fortsatt på.
@@ -134,14 +134,15 @@ const unsavedBar = h(
   button("Lagre…", "save", () => void saveUnsaved(), { primary: true, title: "Lagre som PDF (Ctrl+S)" }),
 );
 
-const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", primary: true, className: "split-main" }));
-const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", primary: true, className: "split-caret" }));
+const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", className: "split-main" }));
+const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", className: "split-caret" }));
 
 const toolbar = h(
   "header",
   { class: "toolbar" },
-  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)" }),
-  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)" }),
+  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)", className: "keep-label" }),
+  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)", className: "keep-label" }),
+  h("span", { class: "sep" }),
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
   docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
@@ -177,7 +178,7 @@ function emptyState(): HTMLElement {
   return h(
     "div",
     { class: "empty" },
-    h("div", { class: "empty-icon", html: icon("file") }),
+    h("div", { class: "empty-icon", html: logo() }),
     h("h1", {}, "Blad"),
     h("p", { class: "muted" }, "Åpne en PDF, eller dra en fil inn i vinduet."),
     button("Åpne PDF…", "open", () => void openDialog(), { primary: true, className: "big" }),
