@@ -841,6 +841,19 @@ export class Measure {
     this.updateHint();
   }
 
+  /** Fjerner mål som ligger i sladdede områder (de ville ellers blitt skrevet til fila igjen). */
+  removeInAreas(areas: Array<{ page: number; rect: [number, number, number, number] }>): number {
+    const hit = (m: Measurement) =>
+      areas.some((a) => a.page === m.page && m.points.some((p) => p[0] >= a.rect[0] && p[0] <= a.rect[2] && p[1] >= a.rect[1] && p[1] <= a.rect[3]));
+    const gone = this.s.items.filter(hit);
+    if (!gone.length) return 0;
+    this.s.items = this.s.items.filter((m) => !hit(m));
+    if (!this.s.items.some((m) => m.id === this.s.selected)) this.s.selected = null;
+    this.redrawAll();
+    this.markDirty();
+    return gone.length;
+  }
+
   private remove(id: number): void {
     const m = this.s.items.find((x) => x.id === id);
     if (!m) return;

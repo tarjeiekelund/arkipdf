@@ -12,6 +12,7 @@ import {
   cloudCurves,
   lineWidth,
   readMarkups,
+  textCorners,
   textLayout,
   toTextLocal,
   writeMarkups,
@@ -105,6 +106,10 @@ const store = {
 
 export class Markup {
   readonly bar: HTMLDivElement;
+  /** Lista over markeringene (til høyre, som lista over mål). */
+  readonly panel: HTMLDivElement;
+  private list: HTMLOListElement;
+  private count: HTMLSpanElement;
   active = false;
   private tool: MarkupKind = "cloud";
   private color: MarkupColor = (store.get("markupColor") as MarkupColor) in COLORS ? (store.get("markupColor") as MarkupColor) : "red";
@@ -154,6 +159,19 @@ export class Markup {
       this.saveBtn,
       button("", "close", () => this.close(), { title: "Avslutt markering (Esc)", className: "ghost" }),
     );
+    this.list = h("ol", { class: "measure-list" });
+    this.count = h("span", {});
+    this.panel = h(
+      "div",
+      { class: "measure-panel markup-panel", hidden: true },
+      h(
+        "header",
+        {},
+        h("strong", {}, "Markeringer ", this.count),
+        button("", "trash", () => this.clearAll(), { title: "Fjern alle markeringer", className: "ghost" }),
+      ),
+      this.list,
+    );
     this.setupPointer();
     const prev = viewer.onPageRendered;
     viewer.onPageRendered = (page, pageEl, geom) => {
@@ -178,6 +196,7 @@ export class Markup {
         st.dirty = false;
         if (this.s !== st) return;
         this.redrawAll();
+        this.refreshBar();
         this.onChange();
       })
       .catch(() => {
@@ -228,6 +247,7 @@ export class Markup {
     delete this.viewer.el.dataset.khover;
     this.viewer.tool = this.toolBefore;
     this.bar.hidden = true;
+    this.panel.hidden = true;
     if (this.s.selected !== null) {
       this.s.selected = null;
       this.redrawAll();
@@ -306,6 +326,45 @@ export class Markup {
     else t = this.tool === "cloud" ? "Dra opp skyen rundt det som er endret" : "Dra fra der pila starter til det den peker på";
     this.hint.textContent = t;
     this.hint.title = t;
+    this.refreshPanel();
+  }
+
+  private refreshPanel(): void {
+    const items = [...this.s.items].sort((a, b) => a.page - b.page);
+    this.count.textContent = items.length ? `(${items.length})` : "";
+    this.panel.hidden = !this.active || !items.length;
+    if (this.panel.hidden) return;
+    this.list.replaceChildren(
+      ...items.map((m, i) => {
+        const what = m.kind === "text" ? `«${(m.text ?? "").split(/\r?\n/)[0].slice(0, 40)}»` : TOOL_NAMES[m.kind];
+        const dot = h("span", { class: "markup-dot" });
+        dot.style.background = COLORS[m.color].css;
+        const row = h(
+          "li",
+          { class: m.id === this.s.selected ? "selected" : "" },
+          h("span", { class: "measure-nr" }, String(i + 1)),
+          h("span", { class: "measure-desc" }, h("span", { class: "measure-value" }, dot, what), h("span", { class: "muted" }, `${m.kind === "text" ? "Tekst · " : ""}side ${m.page + 1}`)),
+          button("", "close", () => this.remove(m.id), { title: "Fjern", className: "ghost" }),
+        );
+        row.addEventListener("click", (e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (m.page !== this.viewer.current) this.viewer.goToPage(m.page);
+          this.select(m.id);
+          this.viewer.el.focus({ preventScroll: true });
+        });
+        return row;
+      }),
+    );
+  }
+
+  private clearAll(): void {
+    if (!this.s.items.length) return;
+    const pages = new Set(this.s.items.map((m) => m.page));
+    this.remember();
+    this.s.items = [];
+    this.s.selected = null;
+    for (const p of pages) this.redraw(p);
+    this.markDirty();
   }
 
   private selectedItem(): Item | undefined {
@@ -519,6 +578,29 @@ export class Markup {
       }
     }
     return null;
+  }
+
+  /** Fjerner markeringer som berører sladdede områder (de ville ellers blitt skrevet til fila igjen). */
+  removeInAreas(areas: Array<{ page: number; rect: [number, number, number, number] }>): number {
+    const box = (m: Item): Pt[] => (m.kind === "text" ? textCorners(m.points[0], m.rot, this.layout(m).w, this.layout(m).h) : m.points);
+    const hit = (m: Item) =>
+      areas.some((a) => {
+        if (a.page !== m.page) return false;
+        const pts = box(m);
+        const x0 = Math.min(...pts.map((p) => p[0]));
+        const x1 = Math.max(...pts.map((p) => p[0]));
+        const y0 = Math.min(...pts.map((p) => p[1]));
+        const y1 = Math.max(...pts.map((p) => p[1]));
+        return x0 < a.rect[2] && x1 > a.rect[0] && y0 < a.rect[3] && y1 > a.rect[1];
+      });
+    const gone = this.s.items.filter(hit);
+    if (!gone.length) return 0;
+    const pages = new Set(gone.map((m) => m.page));
+    this.s.items = this.s.items.filter((m) => !hit(m));
+    if (!this.s.items.some((m) => m.id === this.s.selected)) this.s.selected = null;
+    for (const p of pages) this.redraw(p);
+    this.markDirty();
+    return gone.length;
   }
 
   private handlePoints(m: Item): Pt[] {

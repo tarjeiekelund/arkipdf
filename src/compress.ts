@@ -305,9 +305,9 @@ async function shrinkImage(ctx: PDFContext, ref: PDFRef, scale: number, opts: Co
   return "done";
 }
 
-type ColorInfo = { kind: "rgb" | "gray" | "indexed"; channels: 1 | 3 };
+export type ColorInfo = { kind: "rgb" | "gray" | "indexed"; channels: 1 | 3 };
 
-function colorSpace(ctx: PDFContext, cs: PDFObject | undefined): ColorInfo | null {
+export function colorSpace(ctx: PDFContext, cs: PDFObject | undefined): ColorInfo | null {
   if (cs === N("DeviceRGB") || cs === N("CalRGB")) return { kind: "rgb", channels: 3 };
   if (cs === N("DeviceGray") || cs === N("CalGray")) return { kind: "gray", channels: 1 };
   if (cs instanceof PDFArray && cs.size() >= 2) {
@@ -325,7 +325,7 @@ function colorSpace(ctx: PDFContext, cs: PDFObject | undefined): ColorInfo | nul
 }
 
 /** Mangler /Decode, eller har den standardverdien (vanlig i eksport fra Adobe)? */
-function defaultDecode(d: PDFDict, cs: ColorInfo): boolean {
+export function defaultDecode(d: PDFDict, cs: ColorInfo): boolean {
   const dec = d.lookup(N("Decode"));
   if (dec === undefined) return true;
   if (!(dec instanceof PDFArray)) return false;
@@ -334,7 +334,7 @@ function defaultDecode(d: PDFDict, cs: ColorInfo): boolean {
   return got.length === want.length && got.every((v, i) => v === want[i]);
 }
 
-function filterNames(d: PDFDict): string[] {
+export function filterNames(d: PDFDict): string[] {
   const f = d.lookup(N("Filter"));
   if (f instanceof PDFName) return [f.decodeText()];
   if (f instanceof PDFArray) return f.asArray().map((x) => (x instanceof PDFName ? x.decodeText() : "?"));
@@ -342,7 +342,7 @@ function filterNames(d: PDFDict): string[] {
 }
 
 /** Rå pikselverdier for et Flate/LZW-bilde, med PNG-prediktor tatt høyde for. */
-function pixels(img: PDFRawStream, w: number, h: number, channels: number): Uint8Array | null {
+export function pixels(img: PDFRawStream, w: number, h: number, channels: number): Uint8Array | null {
   const data = decodePDFRawStream(img).decode();
   const parms = img.dict.lookup(N("DecodeParms"));
   const pd = parms instanceof PDFArray ? parms.lookup(parms.size() - 1) : parms;
@@ -404,7 +404,7 @@ function nearest(px: Uint8Array, w: number, h: number, ch: number, nw: number, n
   return out;
 }
 
-function fromRgba(rgba: Uint8ClampedArray, channels: 1 | 3): Uint8Array {
+export function fromRgba(rgba: Uint8ClampedArray, channels: 1 | 3): Uint8Array {
   const n = rgba.length / 4;
   const out = new Uint8Array(n * channels);
   for (let i = 0; i < n; i++) {
@@ -429,7 +429,7 @@ function copyKeys(from: PDFDict, to: PDFDict, colorSpace: PDFObject | undefined)
   if (colorSpace) to.set(N("ColorSpace"), colorSpace);
 }
 
-function jpegStream(ctx: PDFContext, d: PDFDict, cs: ColorInfo, jpeg: Uint8Array, w: number, h: number): PDFRawStream {
+export function jpegStream(ctx: PDFContext, d: PDFDict, cs: ColorInfo, jpeg: Uint8Array, w: number, h: number): PDFRawStream {
   // Canvas lager alltid RGB-JPEG. Et RGB-bilde beholder fargerommet sitt (f.eks. ICC-profilen).
   const space = cs.kind === "rgb" ? d.get(N("ColorSpace")) : N("DeviceRGB");
   const dict = ctx.obj({ Width: w, Height: h, BitsPerComponent: 8, Filter: "DCTDecode", Length: jpeg.length });
@@ -437,7 +437,7 @@ function jpegStream(ctx: PDFContext, d: PDFDict, cs: ColorInfo, jpeg: Uint8Array
   return PDFRawStream.of(dict, jpeg);
 }
 
-function flateImage(ctx: PDFContext, d: PDFDict, px: Uint8Array, w: number, h: number): PDFRawStream {
+export function flateImage(ctx: PDFContext, d: PDFDict, px: Uint8Array, w: number, h: number): PDFRawStream {
   const s = ctx.flateStream(px, { Width: w, Height: h, BitsPerComponent: 8 });
   copyKeys(d, s.dict, d.get(N("ColorSpace")));
   return s;

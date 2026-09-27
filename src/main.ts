@@ -1,7 +1,10 @@
 import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
-import { flattenForm, rearrangePages, type PageItem } from "./edit";
+import { flattenForm, IMAGE_FILE, imagesToPdf, isSigned, rearrangePages, type PageItem } from "./edit";
+import { fontFiles } from "./fonts";
+import { normalizeImage } from "./images";
 import { openExportDialog } from "./exportpng";
+import { browserCodec } from "./compress";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
@@ -15,10 +18,13 @@ import {
   listScreens,
   onCloseRequested,
   onFilesDropped,
+  convertOffice,
+  OFFICE_FILE,
   onLaunchFiles,
   openFile,
+  readSystemFont,
   openUrl,
-  pickPdfs,
+  pickDocuments,
   pickSavePath,
   setTitle,
   startupFiles,
@@ -28,7 +34,11 @@ import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
 import { openShrinkDialog } from "./shrink";
 import { checkForUpdates } from "./update";
+import { Redactor } from "./redact";
+import { redactPdf, type RedactArea } from "./redact-pdf";
 import { Search } from "./search";
+import { TextEditor } from "./textedit";
+import { loadForRuns, replaceLine, textRuns, type TextLine } from "./textedit-pdf";
 import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
 
@@ -50,6 +60,8 @@ interface OpenDoc {
   markup: MarkupDoc | null;
   /** Skjemafelt er fylt ut, men ikke lagret (verdiene ligger i `doc.annotationStorage`). */
   formsDirty: boolean;
+  /** Fila er signert digitalt (se `confirmSigned`). */
+  signed: boolean;
   /** Sidene er flyttet eller slettet siden fila ble lagret; endringen finnes bare i minnet. */
   modified: boolean;
   /** Tidligere versjoner av dokumentet, for å angre sideendringer (Ctrl+Z). */
@@ -85,6 +97,8 @@ const viewer = new Viewer();
 const search = new Search(viewer);
 const measure = new Measure(viewer);
 const markup = new Markup(viewer);
+const textEdit = new TextEditor(viewer);
+const redactor = new Redactor(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -119,20 +133,116 @@ const viewControls = h(
 
 const measureBtn = docBtn(button("Mål", "ruler", () => toggleMeasure(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
 const markupBtn = docBtn(button("Merk", "markup", () => toggleMarkup(), { title: "Marker med sky, pil og tekst (K)", className: "keep-label" }));
+const textEditBtn = docBtn(button("Rediger", "editText", () => toggleTextEdit(), { title: "Rediger tekst i PDF-en (E)", className: "keep-label" }));
 measure.onChange = () => refresh();
 markup.onChange = () => refresh();
+textEdit.onChange = () => refresh();
+redactor.onChange = () => refresh();
+redactor.onApply = (areas) => applyRedaction(areas);
+const redactBtn = docBtn(button("Sladd", "redact", () => toggleRedact(), { title: "Sladd: fjern tekst, bilder og annet for godt", className: "keep-label" }));
+textEdit.onEdit = (line, text) => applyTextEdit(line, text);
+// Tekstkommandoene leses med pdf-lib fra fanens bytes (én gang per versjon av dokumentet).
+let runsDoc: { bytes: Uint8Array; doc: ReturnType<typeof loadForRuns> } | null = null;
+textEdit.runsFor = async (page) => {
+  const tab = current;
+  if (!tab) return [];
+  if (runsDoc?.bytes !== tab.bytes) runsDoc = { bytes: tab.bytes, doc: loadForRuns(tab.bytes) };
+  return textRuns(await runsDoc.doc, page);
+};
 measure.onSave = () => saveAnnotations();
 markup.onSave = () => saveAnnotations();
 
-/** Måling og markering er hver sin modus; bare én er på om gangen. */
+/** Måling, markering og tekstredigering er hver sin modus; bare én er på om gangen. */
 function toggleMeasure(): void {
-  markup.close();
+  closeModes(measure);
   measure.toggle();
 }
 
 function toggleMarkup(): void {
-  measure.close();
+  closeModes(markup);
   markup.toggle();
+}
+
+function toggleTextEdit(): void {
+  closeModes(textEdit);
+  textEdit.toggle();
+}
+
+function toggleRedact(): void {
+  closeModes(redactor);
+  redactor.toggle();
+}
+
+/** Lukker de andre verktøyene (bare ett er på om gangen). */
+function closeModes(keep?: { close(): void }): void {
+  for (const m of [measure, markup, textEdit, redactor]) if (m !== keep) m.close();
+}
+
+/**
+ * Sladder områdene: innholdet under fjernes fra dokumentet (i minnet, så
+ * Ctrl+Z angrer til man lagrer). Mål og markeringer i områdene fjernes også.
+ */
+async function applyRedaction(areas: RedactArea[]): Promise<boolean> {
+  const tab = current;
+  if (!tab) return false;
+  const n = areas.length;
+  const ok = await confirmDialog(
+    `Sladde ${n} ${n === 1 ? "område" : "områder"}?\n\nAlt under områdene – tekst, bilder, figurer og kommentarer – fjernes fra dokumentet og dekkes med svart. Du kan angre med Ctrl+Z til du lagrer; etter at fila er lagret, kan innholdet ikke hentes tilbake.\n\nTips: bruk «Lagre som…», så beholder du originalen.`,
+  );
+  if (!ok || current !== tab) return false;
+  const b = busy("Sladder…");
+  try {
+    await bakeForms(tab);
+    const { bytes, stats } = await redactPdf(tab.bytes, areas, browserCodec);
+    if (current !== tab) return false;
+    await replaceContent(tab, bytes, Array.from({ length: tab.doc.numPages }, (_, i) => i), viewer.current);
+    const own = measure.removeInAreas(areas) + markup.removeInAreas(areas);
+    showCurrent();
+    const parts: string[] = [];
+    if (stats.glyphs) parts.push(`${stats.glyphs} tegn fjernet`);
+    if (stats.images) parts.push(`${stats.images} ${stats.images === 1 ? "bilde" : "bilder"} svertet`);
+    if (stats.paths) parts.push(`${stats.paths} ${stats.paths === 1 ? "figur" : "figurer"} fjernet`);
+    if (stats.annotations + own) parts.push(`${stats.annotations + own} ${stats.annotations + own === 1 ? "kommentar" : "kommentarer"} fjernet`);
+    toast(`Sladdet${parts.length ? `: ${parts.join(", ")}` : ""}. Lagre med «Lagre som…» for å beholde originalen. Ctrl+Z angrer.`, "success");
+    return true;
+  } catch (e) {
+    toast(`Kunne ikke sladde: ${errorMessage(e)}`, "error");
+    return false;
+  } finally {
+    b.done();
+  }
+}
+
+/** Finner Windows-fonten for en font i PDF-en (se fonts.ts). */
+async function loadSystemFont(name: string): Promise<Uint8Array | null> {
+  for (const file of fontFiles(name)) {
+    const bytes = await readSystemFont(file);
+    if (bytes) return bytes;
+  }
+  return null;
+}
+
+/** Bytter ut en tekstlinje i dokumentet (i minnet, som sideendringer: Ctrl+Z angrer). */
+async function applyTextEdit(line: TextLine, text: string): Promise<void> {
+  const tab = current;
+  if (!tab) return;
+  const b = busy("Endrer teksten…");
+  try {
+    await bakeForms(tab);
+    const r = await replaceLine(tab.bytes, line, text, loadSystemFont);
+    if (current !== tab) return;
+    await replaceContent(tab, r.bytes, Array.from({ length: tab.doc.numPages }, (_, i) => i), viewer.current);
+    showCurrent();
+    const parts = [text ? "Teksten er endret." : "Teksten er slettet."];
+    if (!r.removed) parts.push("Den gamle teksten kunne ikke fjernes fra fila og er dekket over med hvitt.");
+    else if (text && r.originalFont && r.font !== r.originalFont) parts.push(`Fonten «${r.originalFont}» finnes ikke på PC-en, så den nye teksten er skrevet med ${r.font}.`);
+    parts.push("Ctrl+Z angrer.");
+    toast(parts.join(" "), r.removed ? "success" : "info");
+  } catch (e) {
+    toast(`Kunne ikke endre teksten: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
 }
 
 /**
@@ -144,10 +254,10 @@ async function saveAnnotations(saveAs = false): Promise<boolean> {
   if (!tab) return false;
   let path = tab.path;
   if (tab.unsaved || saveAs) {
-    const target = await pickSavePath(saveAs ? tab.path.replace(/\.pdf$/i, " (endret).pdf") : path, tab.unsaved ? "Lagre sammenslått PDF" : "Lagre som");
+    const target = await pickSavePath(saveAs ? tab.path.replace(/\.pdf$/i, " (endret).pdf") : path, tab.unsaved ? "Lagre PDF" : "Lagre som");
     if (!target || current !== tab) return false;
     path = target;
-  }
+  } else if ((measure.dirty || markup.dirty || tab.modified) && !(await confirmSigned(tab))) return false;
   const page = viewer.current;
   const wasMeasuring = measure.active;
   const wasMarking = markup.active;
@@ -189,7 +299,7 @@ function updateDocBar(): void {
   const onlyForms = t.formsDirty && !t.unsaved && !t.modified;
   barTitle.textContent = t.unsaved ? "Ikke lagret" : onlyForms ? "Skjema" : "Endret";
   barHint.textContent = t.unsaved
-    ? "Se over det sammenslåtte dokumentet. Dra sidene i sidepanelet for å endre rekkefølgen før du lagrer."
+    ? "Dokumentet finnes ikke som fil ennå. Dra sidene i sidepanelet for å endre rekkefølgen, og lagre når det er klart."
     : onlyForms
       ? "Skjemaet er fylt ut. Verdiene skrives til fila først når du lagrer."
       : "Dokumentet er endret. Endringene skrives til fila først når du lagrer. Ctrl+Z angrer.";
@@ -205,8 +315,8 @@ const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { titl
 const toolbar = h(
   "header",
   { class: "toolbar" },
-  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)", className: "keep-label" }),
-  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)", className: "keep-label" }),
+  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF, eller gjør bilder om til PDF (Ctrl+O)", className: "keep-label" }),
+  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen PDF-er og bilder (Ctrl+M)", className: "keep-label" }),
   h("span", { class: "sep" }),
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
@@ -214,6 +324,8 @@ const toolbar = h(
   docBtn(button("Reduser", "shrink", () => void startShrink(), { title: "Reduser filstørrelse: skaler ned bilder og fjern duplikater" })),
   measureBtn,
   markupBtn,
+  textEditBtn,
+  redactBtn,
   h("span", { class: "spacer" }),
   viewControls,
   h("span", { class: "split" }, presentBtn, screenBtn),
@@ -239,6 +351,7 @@ function emptyState(): HTMLElement {
     ["Ctrl+F", "Søk i teksten"],
     ["M", "Mål avstand og areal"],
     ["K", "Marker med sky, pil og tekst"],
+    ["E", "Rediger tekst"],
     ["Ctrl+P", "Skriv ut"],
     ["Ctrl+M", "Slå sammen PDF-er"],
     ["Ctrl+K", "Sorter sider"],
@@ -372,6 +485,8 @@ function refresh(): void {
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
   markupBtn.classList.toggle("active", markup.active);
+  textEditBtn.classList.toggle("active", textEdit.active);
+  redactBtn.classList.toggle("active", redactor.active);
   updateDocBar();
   renderTabs();
   if (hasDoc) {
@@ -648,7 +763,7 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
 /** Hva i fanen som ikke er lagret i fila (tomt: alt er lagret). */
 function unsavedReasons(t: OpenDoc): string[] {
   const r: string[] = [];
-  if (t.unsaved) r.push("sammenslått dokument som ikke er lagret");
+  if (t.unsaved) r.push("nytt dokument som ikke er lagret");
   else if (t.modified) r.push("sidene er endret");
   const pending = [t.measure?.dirty && "mål", t.markup?.dirty && "markeringer"].filter(Boolean).join(" og ");
   if (pending) r.push(`${pending} som ikke er lagret i fila`);
@@ -669,12 +784,41 @@ async function confirmQuit(): Promise<boolean> {
 }
 
 async function openDialog(): Promise<void> {
-  await openPaths(await pickPdfs(true));
+  await openPaths(await pickDocuments(true));
 }
 
-/** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). */
+/** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). Bilder blir PDF-er. */
 async function openPaths(paths: string[]): Promise<void> {
-  for (const p of paths) await openPath(p);
+  for (const p of paths) await (IMAGE_FILE.test(p) ? openImage(p) : OFFICE_FILE.test(p) ? openOffice(p) : openPath(p));
+}
+
+/** Gjør et Word-, Excel- eller PowerPoint-dokument om til PDF (med Office på PC-en) og åpner resultatet. */
+async function openOffice(path: string): Promise<void> {
+  const b = busy(`Gjør ${baseName(path)} om til PDF med Office…`);
+  try {
+    const pdf = await convertOffice(path);
+    b.done();
+    await openPath(path.replace(OFFICE_FILE, ".pdf"), { page: 0, bytes: pdf, unsaved: true });
+  } catch (e) {
+    toast(`Kunne ikke gjøre ${baseName(path)} om til PDF: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
+}
+
+/** Gjør et bilde om til en PDF og åpner den som et nytt, ulagret dokument ved siden av bildet. */
+async function openImage(path: string): Promise<void> {
+  const b = busy(`Gjør ${baseName(path)} om til PDF…`);
+  try {
+    const name = baseName(path);
+    const pdf = await imagesToPdf([{ name, bytes: (await openFile(path)).bytes }], normalizeImage);
+    b.done();
+    await openPath(path.replace(IMAGE_FILE, ".pdf"), { page: 0, bytes: pdf, unsaved: true });
+  } catch (e) {
+    toast(`Kunne ikke gjøre ${baseName(path)} om til PDF: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
 }
 
 interface OpenOptions {
@@ -717,7 +861,7 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
     // En ny versjon av samme dokument beholder zoom og rotasjon; en ny fil får standard zoom.
     const z = store.get("zoom");
     const view = old ? { page, zoom: viewer.zoomMode, rotation: viewer.rotation } : { page, zoom: (z === "width" || z === "page" ? z : "auto") as ZoomMode, rotation: 0 };
-    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, markup: null, formsDirty: false, modified: false, pageHistory: [] };
+    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, markup: null, formsDirty: false, signed: !unsaved && isSigned(file.bytes), modified: false, pageHistory: [] };
     if (old && tabs.includes(old)) {
       tabs[tabs.indexOf(old)] = tab;
       old.thumbs.dispose();
@@ -773,6 +917,10 @@ async function closeTab(tab: OpenDoc): Promise<void> {
       measure.setDocument(null, null);
       markup.close();
       markup.setDocument(null);
+      textEdit.close();
+      textEdit.setDocument(null);
+      redactor.close();
+      redactor.setDocument(null);
       search.setDocument(null);
       void viewer.setDocument(null);
     }
@@ -836,7 +984,7 @@ function showCurrent(): void {
     refresh();
     return;
   }
-  content.replaceChildren(unsavedBar, measure.bar, markup.bar, viewer.el, search.el, measure.panel);
+  content.replaceChildren(unsavedBar, measure.bar, markup.bar, textEdit.bar, redactor.bar, viewer.el, search.el, measure.panel, markup.panel);
   if (viewer.document !== current.doc) {
     const tab = current;
     search.setDocument(tab.doc);
@@ -847,6 +995,8 @@ function showCurrent(): void {
       measure.setDocument(tab.bytes, tab.doc);
       tab.measure = measure.state;
     }
+    textEdit.setDocument(tab.doc);
+    redactor.setDocument(tab.doc);
     if (tab.markup) markup.useDocument(tab.markup);
     else {
       markup.close();
@@ -866,10 +1016,13 @@ function showCurrent(): void {
 async function startPresentation(): Promise<void> {
   if (!current || organizer) return;
   if (presentation?.active) return presentation.stop();
-  presentation = new Presentation(current.doc, viewer.rotation);
+  // Mål og markeringer som ikke er lagret ennå, vises også.
+  const { doc, temporary } = await withPending(current);
+  presentation = new Presentation(doc, viewer.rotation);
   presentation.onExit = (page) => {
     viewer.goToPage(page);
     viewer.el.focus();
+    if (temporary) void doc.loadingTask.destroy();
   };
   // Husket skjerm (f.eks. projektoren) brukes hvis den fortsatt er tilkoblet.
   const wanted = store.get("presentScreen");
@@ -945,8 +1098,7 @@ function startOrganize(): void {
     },
   }, true);
   if (search.isOpen) search.close();
-  measure.close();
-  markup.close();
+  closeModes();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -1111,6 +1263,18 @@ function deleteSelectedPages(): void {
   );
 }
 
+/**
+ * Før en signert PDF overskrives: mål, markeringer og sideendringer skriver
+ * fila på nytt, og da blir den digitale signaturen ugyldig. (Utfylte skjema
+ * lagres som et tillegg til fila og beholder signaturen.)
+ */
+async function confirmSigned(tab: OpenDoc): Promise<boolean> {
+  if (!tab.signed) return true;
+  return confirmDialog(
+    `«${tab.name}» er signert digitalt. Lagrer du endringene i denne fila, blir signaturen ugyldig.\n\nLagre likevel?\n\n(Velg «Nei» og bruk «Lagre som…» for å beholde originalen med gyldig signatur.)`,
+  );
+}
+
 /** Lagrer dokumentet (Ctrl+S), eller som ny fil (Ctrl+Shift+S). Mål som ikke er lagret, blir med. */
 async function saveDoc(saveAs = false): Promise<void> {
   const tab = current;
@@ -1119,6 +1283,7 @@ async function saveDoc(saveAs = false): Promise<void> {
   if (measure.dirty || markup.dirty || tab.formsDirty) return void (await saveAnnotations(saveAs));
   if (tab.unsaved) return saveUnsaved();
   if (!tab.modified && !saveAs) return;
+  if (!saveAs && !(await confirmSigned(tab))) return;
   let target = tab.path;
   if (saveAs) {
     const picked = await pickSavePath(tab.path.replace(/\.pdf$/i, " (endret).pdf"), "Lagre som");
@@ -1167,11 +1332,11 @@ function showMerged(bytes: Uint8Array, suggestedPath: string): void {
   void openPath(suggestedPath, { page: 0, bytes, unsaved: true });
 }
 
-/** Lagrer et sammenslått dokument som ikke er lagret ennå. */
+/** Lagrer et nytt dokument (sammenslått eller laget av bilder) som ikke er lagret ennå. */
 async function saveUnsaved(): Promise<void> {
   const doc = current;
   if (!doc?.unsaved) return;
-  const target = await pickSavePath(doc.path, "Lagre sammenslått PDF");
+  const target = await pickSavePath(doc.path, "Lagre PDF");
   if (!target || current !== doc) return;
   const b = busy("Lagrer…");
   try {
@@ -1195,8 +1360,29 @@ async function saveUnsaved(): Promise<void> {
 async function startPrint(): Promise<void> {
   const tab = current;
   if (!tab || organizer) return;
-  // Vektorutskrift bruker fila; ta med verdiene som er fylt ut.
-  openPrintDialog(tab.doc, await bytesWithForms(tab), tab.name, viewer.current);
+  // Utskriften tar med det som ikke er lagret ennå: utfylte felt, mål og markeringer.
+  const { doc, bytes } = await withPending(tab);
+  openPrintDialog(doc, bytes, tab.name, viewer.current);
+}
+
+/**
+ * Dokumentet slik det blir når det lagres (for utskrift og presentasjon).
+ * Uten ulagrede mål eller markeringer er det fanens eget dokument.
+ */
+async function withPending(tab: OpenDoc): Promise<{ doc: PDFDocumentProxy; bytes: Uint8Array; temporary: boolean }> {
+  const bytes = await bytesWithForms(tab);
+  if (!measure.dirty && !markup.dirty) return { doc: tab.doc, bytes, temporary: false };
+  const b = busy("Gjør klar…");
+  try {
+    let out = bytes;
+    if (measure.dirty) out = await measure.writeTo(out);
+    if (markup.dirty) out = await markup.writeTo(out);
+    return { doc: await loadPdf(out), bytes: out, temporary: true };
+  } catch {
+    return { doc: tab.doc, bytes, temporary: false };
+  } finally {
+    b.done();
+  }
 }
 
 function startExport(): void {
@@ -1239,6 +1425,14 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+  if (textEdit.active && current && !typing(e.target) && textEdit.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
+  if (redactor.active && current && !typing(e.target) && redactor.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   let handled = true;
@@ -1275,6 +1469,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowLeft" && !scrollsSideways()) viewer.goToPage(viewer.current - 1);
   else if (k === "m") toggleMeasure();
   else if (k === "k") toggleMarkup();
+  else if (k === "e") toggleTextEdit();
   else if (k === "h") setTool("hand");
   else if (k === "v") setTool("select");
   else if (e.key === "r") viewer.rotate(90);

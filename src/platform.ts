@@ -18,6 +18,18 @@ export interface OpenedFile {
 }
 
 const pdfFilter = [{ name: "PDF-dokumenter", extensions: ["pdf"] }];
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+const OFFICE_EXTENSIONS = ["docx", "doc", "rtf", "odt", "xlsx", "xls", "ods", "pptx", "ppt", "odp"];
+const openFilter = [
+  { name: "PDF, bilder og Office", extensions: ["pdf", ...IMAGE_EXTENSIONS, ...OFFICE_EXTENSIONS] },
+  { name: "PDF-dokumenter", extensions: ["pdf"] },
+  { name: "Bilder", extensions: IMAGE_EXTENSIONS },
+  { name: "Word, Excel og PowerPoint", extensions: OFFICE_EXTENSIONS },
+];
+/** Office-dokumenter som kan gjøres om til PDF (krever Office eller LibreOffice). */
+export const OFFICE_FILE = /\.(docx?|docm|rtf|odt|xlsx?|xlsm|ods|pptx?|pptm|odp)$/i;
+/** Filer ArkiPDF kan åpne: PDF, og bilder og Office-dokumenter som gjøres om til PDF. */
+const openable = (name: string) => /\.(pdf|jpe?g|png|webp|gif|bmp)$/i.test(name) || OFFICE_FILE.test(name);
 
 // Nettleserreserve: filer valgt via <input> huskes på «sti» (= navn).
 const browserFiles = new Map<string, Uint8Array>();
@@ -37,11 +49,11 @@ export function joinPath(dir: string, name: string): string {
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
 }
 
-function pickBrowserFiles(multiple: boolean): Promise<string[]> {
+function pickBrowserFiles(multiple: boolean, images = false): Promise<string[]> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "application/pdf,.pdf";
+    input.accept = images ? `application/pdf,.pdf,${IMAGE_EXTENSIONS.map((e) => `.${e}`).join(",")}` : "application/pdf,.pdf";
     input.multiple = multiple;
     input.onchange = async () => {
       const paths: string[] = [];
@@ -59,6 +71,30 @@ function pickBrowserFiles(multiple: boolean): Promise<string[]> {
 export async function pickPdfs(multiple: boolean): Promise<string[]> {
   if (!isTauri) return pickBrowserFiles(multiple);
   const res = await dialog.open({ multiple, directory: false, filters: pdfFilter, title: multiple ? "Velg PDF-filer" : "Åpne PDF" });
+  if (!res) return [];
+  return Array.isArray(res) ? res : [res];
+}
+
+/** Leser en font fra Windows (null i nettleseren eller hvis den ikke finnes). */
+export async function readSystemFont(file: string): Promise<Uint8Array | null> {
+  if (!isTauri) return null;
+  try {
+    return new Uint8Array(await invoke<ArrayBuffer>("read_font", { file }));
+  } catch {
+    return null;
+  }
+}
+
+/** Gjør et Office-dokument om til PDF med Office (eller LibreOffice) på PC-en. */
+export async function convertOffice(path: string): Promise<Uint8Array> {
+  if (!isTauri) throw new Error("Omgjøring av Word, Excel og PowerPoint virker bare i Windows-appen.");
+  return new Uint8Array(await invoke<ArrayBuffer>("convert_office", { path }));
+}
+
+/** Velg PDF-er eller bilder (bilder gjøres om til PDF). */
+export async function pickDocuments(multiple: boolean): Promise<string[]> {
+  if (!isTauri) return pickBrowserFiles(multiple, true);
+  const res = await dialog.open({ multiple, directory: false, filters: openFilter, title: multiple ? "Velg PDF-er eller bilder" : "Åpne PDF eller bilde" });
   if (!res) return [];
   return Array.isArray(res) ? res : [res];
 }
@@ -229,7 +265,7 @@ export function onFilesDropped(handler: (paths: string[]) => void, setHover: (on
       else if (p.type === "leave") setHover(false);
       else if (p.type === "drop") {
         setHover(false);
-        const pdfs = p.paths.filter((x) => x.toLowerCase().endsWith(".pdf"));
+        const pdfs = p.paths.filter(openable);
         if (pdfs.length) handler(pdfs);
       }
     });
@@ -250,7 +286,7 @@ export function onFilesDropped(handler: (paths: string[]) => void, setHover: (on
     setHover(false);
     const paths: string[] = [];
     for (const f of Array.from(e.dataTransfer.files)) {
-      if (!f.name.toLowerCase().endsWith(".pdf")) continue;
+      if (!openable(f.name)) continue;
       browserFiles.set(f.name, new Uint8Array(await f.arrayBuffer()));
       paths.push(f.name);
     }
