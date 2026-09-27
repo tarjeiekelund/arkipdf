@@ -393,6 +393,7 @@ main {
 }
 
 .thumb-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -437,6 +438,35 @@ main {
 
 .thumb-item.active .thumb-img {
   box-shadow: 0 0 0 2px var(--chrome), 0 0 0 5px var(--accent);
+}
+
+/* Valgte sider (kan dras til nytt sted eller slettes med Delete). */
+.thumb-item.selected {
+  background: var(--accent-soft);
+}
+
+.thumb-item.selected:hover {
+  background: var(--accent-soft);
+}
+
+.sidebar.dragging-pages .thumb-item {
+  cursor: grabbing;
+}
+
+.sidebar.dragging-pages .thumb-item.selected {
+  opacity: 0.55;
+}
+
+/* Viser hvor sidene havner når de slippes. */
+.thumb-drop {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .thumb-item.active {

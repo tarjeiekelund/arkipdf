@@ -77,6 +77,38 @@ function newMeasureDoc(doc: PDFDocumentProxy | null): MeasureDoc {
   };
 }
 
+/** Kopi av målene i et dokument (for å kunne angre en endring av sidene). */
+export function copyMeasureDoc(st: MeasureDoc): MeasureDoc {
+  return {
+    ...st,
+    pdfScales: new Map(st.pdfScales),
+    pageScale: new Map(st.pageScale),
+    items: st.items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) })),
+    history: [],
+    snaps: new Map(),
+    snapLoading: new Set(),
+  };
+}
+
+/**
+ * Sidene har fått ny rekkefølge (eller noen er slettet): `order[i]` er den
+ * gamle indeksen til ny side `i`. Målene følger sidene sine; mål på slettede
+ * sider forsvinner. Punktene er i PDF-koordinater og endres ikke.
+ */
+export function reorderMeasureDoc(st: MeasureDoc, order: number[], doc: PDFDocumentProxy): void {
+  const moved = new Map(order.map((old, i) => [old, i]));
+  const remap = <T>(m: Map<number, T>) => new Map([...m].flatMap(([k, v]) => (moved.has(k) ? [[moved.get(k)!, v] as [number, T]] : [])));
+  st.items = st.items.filter((m) => moved.has(m.page)).map((m) => ({ ...m, page: moved.get(m.page)! }));
+  st.pageScale = remap(st.pageScale);
+  st.pdfScales = remap(st.pdfScales);
+  if (!st.items.some((m) => m.id === st.selected)) st.selected = null;
+  // Angring av enkeltmål gjelder den gamle siderekkefølgen.
+  st.history = [];
+  st.snaps = new Map();
+  st.snapLoading = new Set();
+  st.doc = doc;
+}
+
 interface Layer {
   el: HTMLDivElement;
   svg: SVGSVGElement;
