@@ -36,9 +36,9 @@ export function icon(name: keyof typeof paths | string): string {
   return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? ""}</svg>`;
 }
 
-/** Merket: arket med huset i snitt (samme som programikonet, icon/app-icon.svg). */
+/** Merket: huset i snitt (samme som programikonet, branding/arkipdf-ikon.svg). */
 export function logo(): string {
-  return `<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M26 6H64L82 24V88A6 6 0 0 1 76 94H26A6 6 0 0 1 20 88V12A6 6 0 0 1 26 6Z" fill="#fff" stroke="#aeb9b5" stroke-width="1.5"/><path d="M64 6V18A6 6 0 0 0 70 24H82Z" fill="#e1e7e4" stroke="#aeb9b5" stroke-width="1.5" stroke-linejoin="round"/><path d="M30 59L51 38L72 59H67V82H35V59Z" fill="#1f6f5c"/><rect x="47" y="68" width="8" height="14" fill="#fff"/></svg>`;
+  return `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M14 58V24L32 8L50 24V46L38 58Z" fill="#1D5E4D"/><path d="M50 46H38V58Z" fill="#1D5E4D" fill-opacity="0.45"/><rect x="22" y="30" width="20" height="4.5" rx="1" fill="#FFFFFF"/><rect x="22" y="39" width="13" height="4.5" rx="1" fill="#FFFFFF"/></svg>`;
 }
 
 export function h<K extends keyof HTMLElementTagNameMap>(

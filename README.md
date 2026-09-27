@@ -167,7 +167,7 @@ lagt ut som en GitHub-release.
 │   ├── print.ts     utskrift
 │   ├── edit.ts      skriving av PDF (pdf-lib)
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
-├── icon/            kildefiler for programikonet
+├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)
 ```
 
@@ -180,11 +180,11 @@ npm install
 npm run dev          # bare grensesnittet i nettleseren, http://localhost:1420
 npx tauri dev        # hele appen i eget vindu
 npm test             # selvtester: sortering, sammenslåing, måling, snapping, lagring
-npm run icons        # lager programikonene på nytt fra icon/*.svg
+npm run icons        # lager programikonene på nytt fra branding/*.svg
 npx tauri build      # installer i src-tauri/target/release/bundle/nsis/
 ```
 
 I nettleseren (`npm run dev`) brukes en enkel reserve: filer velges med
 nettleserens filvelger, og lagrede filer lastes ned.
 
-Ikonet lages fra `icon/app-icon.svg` med `npm run icons`. De minste størrelsene (16–48 px) tegnes fra egne, forenklede filer i samme mappe, så ikonet er tydelig i Utforsker og oppgavelinja.
+Grafisk profil (farger, ordbilde og ikon) er beskrevet i `branding/BRAND.md`. Ikonet lages fra `branding/arkipdf-ikon.svg` med `npm run icons`; 16 og 24 px tegnes fra egne, pikseltilpassede filer i samme mappe, så ikonet er skarpt i Utforsker og oppgavelinja.

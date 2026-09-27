@@ -1,36 +1,29 @@
-// Lager programikonene fra icon/*.svg: `npm run icons`.
+// Lager programikonene fra branding/*.svg: `npm run icons`.
 //
-// `tauri icon` tegner alle størrelser fra én fil. Det gir et grøtete ikon i
-// Utforsker og oppgavelinja, så de små størrelsene i icon.ico tegnes fra egne,
-// forenklede filer (tykkere kant, større blad).
+// Masteren (arkipdf-ikon.svg) brukes fra 32 px og opp. 16 og 24 px har egne,
+// pikseltilpassede filer, så ikonet er skarpt i Utforsker og oppgavelinja.
+// icon.ico får 16, 24, 32, 48 og 256 px (se branding/BRAND.md).
 import { execSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const icons = "src-tauri/icons";
+const master = "branding/arkipdf-ikon.svg";
 const tauri = (args) => execSync(`npx tauri icon ${args}`, { stdio: "inherit" });
 
-tauri("icon/app-icon.svg");
+tauri(master);
 // ArkiPDF lages bare for Windows; mobilikonene trengs ikke.
 for (const dir of ["android", "ios"]) rmSync(join(icons, dir), { recursive: true, force: true });
 
-const tmp = mkdtempSync(join(tmpdir(), "blad-icons-"));
+const tmp = mkdtempSync(join(tmpdir(), "arkipdf-icons-"));
 try {
-  tauri(`icon/app-icon-16.svg -o "${tmp}" -p 16`);
-  tauri(`icon/app-icon-32.svg -o "${tmp}" -p 24,32`);
-  tauri(`icon/app-icon-48.svg -o "${tmp}" -p 48`);
+  tauri(`branding/arkipdf-ikon-16.svg -o "${tmp}" -p 16`);
+  tauri(`branding/arkipdf-ikon-24.svg -o "${tmp}" -p 24`);
+  tauri(`${master} -o "${tmp}" -p 32,48,256`);
   copyFileSync(join(tmp, "32x32.png"), join(icons, "32x32.png"));
 
-  const pngs = [
-    [16, join(tmp, "16x16.png")],
-    [24, join(tmp, "24x24.png")],
-    [32, join(tmp, "32x32.png")],
-    [48, join(tmp, "48x48.png")],
-    [64, join(icons, "64x64.png")],
-    [128, join(icons, "128x128.png")],
-    [256, join(icons, "128x128@2x.png")],
-  ].map(([size, file]) => [size, readFileSync(file)]);
+  const pngs = [16, 24, 32, 48, 256].map((size) => [size, readFileSync(join(tmp, `${size}x${size}.png`))]);
   writeFileSync(join(icons, "icon.ico"), ico(pngs));
   console.log(`Skrev ${icons}/icon.ico (${pngs.map(([s]) => s).join(", ")} px)`);
 } finally {

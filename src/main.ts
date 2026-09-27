@@ -206,7 +206,7 @@ function emptyState(): HTMLElement {
     "div",
     { class: "empty" },
     h("div", { class: "empty-icon", html: logo() }),
-    h("h1", {}, "ArkiPDF"),
+    h("h1", { class: "wordmark", "aria-label": "ArkiPDF" }, "Arki", h("span", { class: "wordmark__pdf" }, "PDF")),
     h("p", { class: "muted" }, "Åpne en PDF, eller dra en fil inn i vinduet."),
     button("Åpne PDF…", "open", () => void openDialog(), { primary: true, className: "big" }),
     recentList(),
