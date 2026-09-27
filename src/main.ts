@@ -602,14 +602,22 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
   }
 }
 
-/** Har fanen noe som ikke er lagret (sammenslått dokument eller mål)? */
+/** Hva i fanen som ikke er lagret i fila (tomt: alt er lagret). */
+function unsavedReasons(t: OpenDoc): string[] {
+  const r: string[] = [];
+  if (t.unsaved) r.push("sammenslått dokument som ikke er lagret");
+  else if (t.modified) r.push("sidene er endret");
+  if (t.measure?.dirty) r.push("mål som ikke er lagret i fila");
+  return r;
+}
+
 function hasUnsaved(t: OpenDoc): boolean {
-  return t.unsaved || t.modified || !!t.measure?.dirty;
+  return unsavedReasons(t).length > 0;
 }
 
 /** Før vinduet lukkes: spør hvis noen faner har noe som ikke er lagret. */
 async function confirmQuit(): Promise<boolean> {
-  const names = tabs.filter(hasUnsaved).map((t) => `• ${t.name}`);
+  const names = tabs.filter(hasUnsaved).map((t) => `• ${t.name}: ${unsavedReasons(t).join(" og ")}`);
   if (organizer?.dirty && current && !hasUnsaved(current)) names.push(`• ${current.name} (siderekkefølge)`);
   if (!names.length) return true;
   return confirmDialog(`Dette er ikke lagret:\n\n${names.join("\n")}\n\nLukke ArkiPDF likevel?`);
@@ -734,19 +742,21 @@ function cycleTab(dir: number): void {
 let tabsKey = "";
 /** Tegner fanelinja på nytt når noe i den er endret. */
 function renderTabs(): void {
-  const key = [organizer ? 1 : 0, current ? tabs.indexOf(current) : -1, ...tabs.map((t) => `${t.name}|${hasUnsaved(t) ? 1 : 0}`)].join("/");
+  const key = [organizer ? 1 : 0, current ? tabs.indexOf(current) : -1, ...tabs.map((t) => `${t.name}|${t.path}|${unsavedReasons(t).join()}`)].join("/");
   if (key === tabsKey) return;
   tabsKey = key;
   tabBar.hidden = tabs.length === 0;
   tabBar.classList.toggle("locked", !!organizer);
   tabBar.replaceChildren(
     ...tabs.map((t) => {
+      const reasons = unsavedReasons(t);
+      const tip = `${t.unsaved ? t.name : t.path}${reasons.length ? `\nIkke lagret: ${reasons.join(" og ")}` : ""}`;
       const close = h("span", { class: "tab-close", role: "button", "aria-label": `Lukk ${t.name}`, title: "Lukk (Ctrl+W)", html: icon("close") });
       const el = h(
         "div",
-        { class: `doc-tab${t === current ? " active" : ""}${hasUnsaved(t) ? " dirty" : ""}`, role: "tab", "aria-selected": String(t === current), title: t.unsaved ? `${t.name} (ikke lagret)` : t.path },
+        { class: `doc-tab${t === current ? " active" : ""}${reasons.length ? " dirty" : ""}`, role: "tab", "aria-selected": String(t === current), title: tip },
         h("span", { class: "doc-tab-name" }, t.name),
-        h("span", { class: "doc-tab-dot", title: "Ikke lagret" }),
+        h("span", { class: "doc-tab-dot" }),
         close,
       );
       el.addEventListener("mousedown", (e) => {

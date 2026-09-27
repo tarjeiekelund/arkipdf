@@ -56,10 +56,33 @@ export interface MeasureDoc {
   selected: number | null;
   /** Tidligere tilstander for Ctrl+Z. */
   history: Measurement[][];
-  /** Endringer som ikke er lagret i fila. */
+  /** Målene er annerledes enn i fila (se `measureSignature`). */
   dirty: boolean;
+  /** Slik målene var sist de ble lest fra eller lagret i fila. */
+  saved: { items: Measurement[]; pageScale: Map<number, Scale>; defaultScale: Scale | null };
   snaps: Map<number, SnapIndex | null>;
   snapLoading: Set<number>;
+}
+
+/**
+ * Fingeravtrykk av målene, for å se om de er endret siden de ble lagret.
+ * Uten mål teller ikke målestokken: å bare velge målestokk er ingen endring
+ * som må lagres (den lagres uansett sammen med neste mål).
+ */
+function measureSignature(m: { items: Measurement[]; pageScale: Map<number, Scale>; defaultScale: Scale | null }): string {
+  if (!m.items.length) return "";
+  return JSON.stringify({
+    items: m.items.map((x) => [x.page, x.kind, x.points, x.fixed]),
+    scales: [...m.pageScale].sort((a, b) => a[0] - b[0]),
+    def: m.defaultScale,
+  });
+}
+
+/** Husker målene som lagret (etter lesing fra eller lagring til fila). */
+function markSaved(st: MeasureDoc): void {
+  // Egne kopier: målene endres på stedet når de dras.
+  st.saved = { items: st.items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) })), pageScale: new Map(st.pageScale), defaultScale: st.defaultScale };
+  st.dirty = false;
 }
 
 function newMeasureDoc(doc: PDFDocumentProxy | null): MeasureDoc {
@@ -72,6 +95,7 @@ function newMeasureDoc(doc: PDFDocumentProxy | null): MeasureDoc {
     selected: null,
     history: [],
     dirty: false,
+    saved: { items: [], pageScale: new Map(), defaultScale: null },
     snaps: new Map(),
     snapLoading: new Set(),
   };
@@ -98,8 +122,11 @@ export function copyMeasureDoc(st: MeasureDoc): MeasureDoc {
 export function reorderMeasureDoc(st: MeasureDoc, order: number[], doc: PDFDocumentProxy): void {
   const moved = new Map(order.map((old, i) => [old, i]));
   const remap = <T>(m: Map<number, T>) => new Map([...m].flatMap(([k, v]) => (moved.has(k) ? [[moved.get(k)!, v] as [number, T]] : [])));
-  st.items = st.items.filter((m) => moved.has(m.page)).map((m) => ({ ...m, page: moved.get(m.page)! }));
+  const move = (items: Measurement[]) => items.filter((m) => moved.has(m.page)).map((m) => ({ ...m, page: moved.get(m.page)! }));
+  st.items = move(st.items);
   st.pageScale = remap(st.pageScale);
+  // Målene som ligger i fila, flytter med sidene sine når dokumentet lagres.
+  st.saved = { items: move(st.saved.items), pageScale: remap(st.saved.pageScale), defaultScale: st.saved.defaultScale };
   st.pdfScales = remap(st.pdfScales);
   if (!st.items.some((m) => m.id === st.selected)) st.selected = null;
   // Angring av enkeltmål gjelder den gamle siderekkefølgen.
@@ -164,7 +191,8 @@ export class Measure {
     return this.s.dirty;
   }
   set dirty(v: boolean) {
-    this.s.dirty = v;
+    if (v) this.s.dirty = true;
+    else markSaved(this.s);
   }
   /** Kalles med nye filbytes når målene skal lagres. */
   onSave: ((bytes: Uint8Array) => Promise<boolean | void>) | null = null;
@@ -264,6 +292,7 @@ export class Measure {
         for (const [page, sc] of data.pageScales) st.pageScale.set(page, sc);
         st.defaultScale = data.defaultScale;
         st.items = data.measurements.map((m) => ({ ...m, id: this.nextId++ }));
+        markSaved(st);
         if (this.s !== st) return;
         this.refreshScaleUi();
         this.redrawAll();
@@ -312,11 +341,12 @@ export class Measure {
     this.updateHint();
   }
 
+  /** Etter en endring: er målene nå annerledes enn i fila? (Angrer man tilbake, er de ikke det.) */
   private markDirty(): void {
-    if (!this.dirty) {
-      this.dirty = true;
-      this.onChange();
-    }
+    const dirty = measureSignature(this.s) !== measureSignature(this.s.saved);
+    const changed = dirty !== this.s.dirty;
+    this.s.dirty = dirty;
+    if (changed) this.onChange();
     this.refreshPanel();
   }
 
