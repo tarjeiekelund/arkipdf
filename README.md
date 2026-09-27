@@ -116,14 +116,16 @@ Tekst i PDF-en kan markeres og kopieres. Passordbeskyttede PDF-er kan åpnes
 
 ## Installere på Windows
 
-Installeren bygges automatisk av GitHub Actions
-(`.github/workflows/windows.yml`):
+1. Last ned `ArkiPDF_…_x64-setup.exe` fra siste release:
+   **https://github.com/tarjeiekelund/arkipdf/releases/latest**
+2. Kjør den. Den installeres for din bruker, uten administratorrettigheter,
+   og registrerer seg som et program som kan åpne PDF-filer. Windows kan
+   advare fordi installeren ikke er signert: velg «Mer informasjon» →
+   «Kjør likevel».
 
-1. Gå til **Actions → «Windows-bygg»** i GitHub og åpne siste kjøring.
-2. Last ned artefakten **ArkiPDF-installer** og pakk ut zip-fila.
-3. Kjør `ArkiPDF_0.3.0_x64-setup.exe`. Den installeres for din bruker, uten
-   administratorrettigheter, og registrerer seg som et program som kan åpne
-   PDF-filer.
+Installeren bygges av GitHub Actions (`.github/workflows/windows.yml`). Hver
+PR får også et testbygg under **Actions → «Windows-bygg»** (artefakten
+**ArkiPDF-installer**).
 
 Vil du gjøre ArkiPDF til standardprogram for PDF: høyreklikk en PDF →
 *Åpne med* → *Velg en annen app* → **ArkiPDF** → *Alltid*.
@@ -132,7 +134,7 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.3.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.4.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ### Nye versjoner
