@@ -1,6 +1,7 @@
 import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 import { flattenForm, IMAGE_FILE, imagesToPdf, isSigned, rearrangePages, type PageItem } from "./edit";
+import { fontFiles } from "./fonts";
 import { normalizeImage } from "./images";
 import { openExportDialog } from "./exportpng";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
@@ -16,8 +17,11 @@ import {
   listScreens,
   onCloseRequested,
   onFilesDropped,
+  convertOffice,
+  OFFICE_FILE,
   onLaunchFiles,
   openFile,
+  readSystemFont,
   openUrl,
   pickDocuments,
   pickSavePath,
@@ -30,6 +34,8 @@ import { openPrintDialog } from "./print";
 import { openShrinkDialog } from "./shrink";
 import { checkForUpdates } from "./update";
 import { Search } from "./search";
+import { TextEditor } from "./textedit";
+import { loadForRuns, replaceLine, textRuns, type TextLine } from "./textedit-pdf";
 import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
 
@@ -88,6 +94,7 @@ const viewer = new Viewer();
 const search = new Search(viewer);
 const measure = new Measure(viewer);
 const markup = new Markup(viewer);
+const textEdit = new TextEditor(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -122,20 +129,71 @@ const viewControls = h(
 
 const measureBtn = docBtn(button("Mål", "ruler", () => toggleMeasure(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
 const markupBtn = docBtn(button("Merk", "markup", () => toggleMarkup(), { title: "Marker med sky, pil og tekst (K)", className: "keep-label" }));
+const textEditBtn = docBtn(button("Rediger", "editText", () => toggleTextEdit(), { title: "Rediger tekst i PDF-en (E)", className: "keep-label" }));
 measure.onChange = () => refresh();
 markup.onChange = () => refresh();
+textEdit.onChange = () => refresh();
+textEdit.onEdit = (line, text) => applyTextEdit(line, text);
+// Tekstkommandoene leses med pdf-lib fra fanens bytes (én gang per versjon av dokumentet).
+let runsDoc: { bytes: Uint8Array; doc: ReturnType<typeof loadForRuns> } | null = null;
+textEdit.runsFor = async (page) => {
+  const tab = current;
+  if (!tab) return [];
+  if (runsDoc?.bytes !== tab.bytes) runsDoc = { bytes: tab.bytes, doc: loadForRuns(tab.bytes) };
+  return textRuns(await runsDoc.doc, page);
+};
 measure.onSave = () => saveAnnotations();
 markup.onSave = () => saveAnnotations();
 
-/** Måling og markering er hver sin modus; bare én er på om gangen. */
+/** Måling, markering og tekstredigering er hver sin modus; bare én er på om gangen. */
 function toggleMeasure(): void {
   markup.close();
+  textEdit.close();
   measure.toggle();
 }
 
 function toggleMarkup(): void {
   measure.close();
+  textEdit.close();
   markup.toggle();
+}
+
+function toggleTextEdit(): void {
+  measure.close();
+  markup.close();
+  textEdit.toggle();
+}
+
+/** Finner Windows-fonten for en font i PDF-en (se fonts.ts). */
+async function loadSystemFont(name: string): Promise<Uint8Array | null> {
+  for (const file of fontFiles(name)) {
+    const bytes = await readSystemFont(file);
+    if (bytes) return bytes;
+  }
+  return null;
+}
+
+/** Bytter ut en tekstlinje i dokumentet (i minnet, som sideendringer: Ctrl+Z angrer). */
+async function applyTextEdit(line: TextLine, text: string): Promise<void> {
+  const tab = current;
+  if (!tab) return;
+  const b = busy("Endrer teksten…");
+  try {
+    await bakeForms(tab);
+    const r = await replaceLine(tab.bytes, line, text, loadSystemFont);
+    if (current !== tab) return;
+    await replaceContent(tab, r.bytes, Array.from({ length: tab.doc.numPages }, (_, i) => i), viewer.current);
+    showCurrent();
+    const parts = [text ? "Teksten er endret." : "Teksten er slettet."];
+    if (!r.removed) parts.push("Den gamle teksten kunne ikke fjernes fra fila og er dekket over med hvitt.");
+    else if (text && r.originalFont && r.font !== r.originalFont) parts.push(`Fonten «${r.originalFont}» finnes ikke på PC-en, så den nye teksten er skrevet med ${r.font}.`);
+    parts.push("Ctrl+Z angrer.");
+    toast(parts.join(" "), r.removed ? "success" : "info");
+  } catch (e) {
+    toast(`Kunne ikke endre teksten: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
 }
 
 /**
@@ -217,6 +275,7 @@ const toolbar = h(
   docBtn(button("Reduser", "shrink", () => void startShrink(), { title: "Reduser filstørrelse: skaler ned bilder og fjern duplikater" })),
   measureBtn,
   markupBtn,
+  textEditBtn,
   h("span", { class: "spacer" }),
   viewControls,
   h("span", { class: "split" }, presentBtn, screenBtn),
@@ -242,6 +301,7 @@ function emptyState(): HTMLElement {
     ["Ctrl+F", "Søk i teksten"],
     ["M", "Mål avstand og areal"],
     ["K", "Marker med sky, pil og tekst"],
+    ["E", "Rediger tekst"],
     ["Ctrl+P", "Skriv ut"],
     ["Ctrl+M", "Slå sammen PDF-er"],
     ["Ctrl+K", "Sorter sider"],
@@ -375,6 +435,7 @@ function refresh(): void {
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
   markupBtn.classList.toggle("active", markup.active);
+  textEditBtn.classList.toggle("active", textEdit.active);
   updateDocBar();
   renderTabs();
   if (hasDoc) {
@@ -677,7 +738,21 @@ async function openDialog(): Promise<void> {
 
 /** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). Bilder blir PDF-er. */
 async function openPaths(paths: string[]): Promise<void> {
-  for (const p of paths) await (IMAGE_FILE.test(p) ? openImage(p) : openPath(p));
+  for (const p of paths) await (IMAGE_FILE.test(p) ? openImage(p) : OFFICE_FILE.test(p) ? openOffice(p) : openPath(p));
+}
+
+/** Gjør et Word-, Excel- eller PowerPoint-dokument om til PDF (med Office på PC-en) og åpner resultatet. */
+async function openOffice(path: string): Promise<void> {
+  const b = busy(`Gjør ${baseName(path)} om til PDF med Office…`);
+  try {
+    const pdf = await convertOffice(path);
+    b.done();
+    await openPath(path.replace(OFFICE_FILE, ".pdf"), { page: 0, bytes: pdf, unsaved: true });
+  } catch (e) {
+    toast(`Kunne ikke gjøre ${baseName(path)} om til PDF: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
 }
 
 /** Gjør et bilde om til en PDF og åpner den som et nytt, ulagret dokument ved siden av bildet. */
@@ -791,6 +866,8 @@ async function closeTab(tab: OpenDoc): Promise<void> {
       measure.setDocument(null, null);
       markup.close();
       markup.setDocument(null);
+      textEdit.close();
+      textEdit.setDocument(null);
       search.setDocument(null);
       void viewer.setDocument(null);
     }
@@ -854,7 +931,7 @@ function showCurrent(): void {
     refresh();
     return;
   }
-  content.replaceChildren(unsavedBar, measure.bar, markup.bar, viewer.el, search.el, measure.panel, markup.panel);
+  content.replaceChildren(unsavedBar, measure.bar, markup.bar, textEdit.bar, viewer.el, search.el, measure.panel, markup.panel);
   if (viewer.document !== current.doc) {
     const tab = current;
     search.setDocument(tab.doc);
@@ -865,6 +942,7 @@ function showCurrent(): void {
       measure.setDocument(tab.bytes, tab.doc);
       tab.measure = measure.state;
     }
+    textEdit.setDocument(tab.doc);
     if (tab.markup) markup.useDocument(tab.markup);
     else {
       markup.close();
@@ -968,6 +1046,7 @@ function startOrganize(): void {
   if (search.isOpen) search.close();
   measure.close();
   markup.close();
+  textEdit.close();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -1294,6 +1373,10 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+  if (textEdit.active && current && !typing(e.target) && textEdit.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   let handled = true;
@@ -1330,6 +1413,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowLeft" && !scrollsSideways()) viewer.goToPage(viewer.current - 1);
   else if (k === "m") toggleMeasure();
   else if (k === "k") toggleMarkup();
+  else if (k === "e") toggleTextEdit();
   else if (k === "h") setTool("hand");
   else if (k === "v") setTool("select");
   else if (e.key === "r") viewer.rotate(90);

@@ -23,6 +23,8 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 | Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
+| Redigere tekst | **E** (knappen **Rediger**). Se [Redigere tekst](#redigere-tekst) |
+| Word, Excel og PowerPoint til PDF | Åpne eller dra inn dokumentet (også i **Slå sammen**). Office på PC-en gjør det om i bakgrunnen, uten å vise vinduer; finnes ikke Office, brukes LibreOffice hvis det er installert. Resultatet vises før det lagres |
 | Fylle ut skjemaer | Klikk i feltene og skriv. Se [Skjemaer](#skjemaer) |
 
 ### Tegninger
@@ -109,6 +111,25 @@ Trykk **K** (eller knappen **Merk**) for å markere på tegningen.
   markeringer og sideendringer gjør signaturen ugyldig. Bruk «Lagre som…» for
   å beholde originalen. (Utfylte skjemafelt lagres som et tillegg og beholder
   signaturen.)
+
+### Redigere tekst
+
+Trykk **E** (eller **Rediger**), pek på en tekstlinje og klikk. Skriv den nye
+teksten og trykk **Enter** (Esc avbryter). Egnet til å rette et tall, en dato,
+et navn eller en linje i et tittelfelt.
+
+- Den gamle teksten fjernes fra fila, og den nye skrives på samme sted, i samme
+  størrelse, farge og retning.
+- Samme font brukes når den finnes i Windows (Arial, Calibri, Times, Segoe,
+  ISOCPEUR fra AutoCAD o.l., og fonter du har installert selv). Ellers brukes
+  Arial i samme vekt, og ArkiPDF sier fra.
+- Tittelfelt som deles av flere sider, endres bare på siden du redigerer.
+- Tekst i skjulte lag og usynlig tekst (f.eks. fra OCR eller maler) kan ikke
+  velges.
+- Endringen gjøres i minnet: **Ctrl+Z** angrer, og den lagres med Ctrl+S.
+- Begrensninger: én linje om gangen, og teksten flyter ikke om til nye linjer.
+  Tekst som er tegnet som streker (vanlig i CAD-eksport), er ikke tekst og kan
+  ikke redigeres.
 
 ### Skjemaer
 
@@ -235,6 +256,9 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── print.ts     utskrift
 │   ├── edit.ts      skriving av PDF (pdf-lib): sider, sammenslåing, bilder, låsing av skjema
 │   ├── images.ts    bilder som må tegnes om (WebP, mobilbilder) før de legges i PDF
+│   ├── textedit.ts  «Rediger tekst»: velg og skriv om en tekstlinje
+│   ├── textedit-pdf.ts tolking av innholdsstrømmer og utskifting av tekst
+│   ├── fonts.ts     fra fontnavn i PDF-en til fontfil i Windows
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
 ├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)

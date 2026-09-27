@@ -1803,6 +1803,67 @@ input.range {
   cursor: grabbing;
 }
 
+/* ---------- Tekstredigering ---------- */
+
+.viewer.editing-text {
+  cursor: default;
+}
+
+.viewer.editing-text[data-thover="line"] {
+  cursor: text;
+}
+
+.viewer.editing-text .textLayer,
+.viewer.editing-text .linkLayer,
+.viewer.editing-text .linkLayer a,
+.viewer.editing-text .formLayer section {
+  pointer-events: none;
+  user-select: none;
+}
+
+.texteditLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.texteditLayer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.te-hover {
+  fill: rgb(29 94 77 / 0.12);
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.textedit-input {
+  position: absolute;
+  z-index: 5;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 0.15em;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: #fff;
+  color: #000;
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.2;
+  outline: none;
+  pointer-events: auto;
+  transform-origin: 0 0;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.2);
+}
+
+.textedit-bar .small {
+  font-size: 12px;
+}
+
 /* ---------- Markering ---------- */
 
 .viewer.marking {

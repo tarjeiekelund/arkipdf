@@ -19,13 +19,17 @@ export interface OpenedFile {
 
 const pdfFilter = [{ name: "PDF-dokumenter", extensions: ["pdf"] }];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+const OFFICE_EXTENSIONS = ["docx", "doc", "rtf", "odt", "xlsx", "xls", "ods", "pptx", "ppt", "odp"];
 const openFilter = [
-  { name: "PDF og bilder", extensions: ["pdf", ...IMAGE_EXTENSIONS] },
+  { name: "PDF, bilder og Office", extensions: ["pdf", ...IMAGE_EXTENSIONS, ...OFFICE_EXTENSIONS] },
   { name: "PDF-dokumenter", extensions: ["pdf"] },
   { name: "Bilder", extensions: IMAGE_EXTENSIONS },
+  { name: "Word, Excel og PowerPoint", extensions: OFFICE_EXTENSIONS },
 ];
-/** Filer ArkiPDF kan åpne: PDF, og bilder som gjøres om til PDF. */
-const openable = (name: string) => /\.(pdf|jpe?g|png|webp|gif|bmp)$/i.test(name);
+/** Office-dokumenter som kan gjøres om til PDF (krever Office eller LibreOffice). */
+export const OFFICE_FILE = /\.(docx?|docm|rtf|odt|xlsx?|xlsm|ods|pptx?|pptm|odp)$/i;
+/** Filer ArkiPDF kan åpne: PDF, og bilder og Office-dokumenter som gjøres om til PDF. */
+const openable = (name: string) => /\.(pdf|jpe?g|png|webp|gif|bmp)$/i.test(name) || OFFICE_FILE.test(name);
 
 // Nettleserreserve: filer valgt via <input> huskes på «sti» (= navn).
 const browserFiles = new Map<string, Uint8Array>();
@@ -69,6 +73,22 @@ export async function pickPdfs(multiple: boolean): Promise<string[]> {
   const res = await dialog.open({ multiple, directory: false, filters: pdfFilter, title: multiple ? "Velg PDF-filer" : "Åpne PDF" });
   if (!res) return [];
   return Array.isArray(res) ? res : [res];
+}
+
+/** Leser en font fra Windows (null i nettleseren eller hvis den ikke finnes). */
+export async function readSystemFont(file: string): Promise<Uint8Array | null> {
+  if (!isTauri) return null;
+  try {
+    return new Uint8Array(await invoke<ArrayBuffer>("read_font", { file }));
+  } catch {
+    return null;
+  }
+}
+
+/** Gjør et Office-dokument om til PDF med Office (eller LibreOffice) på PC-en. */
+export async function convertOffice(path: string): Promise<Uint8Array> {
+  if (!isTauri) throw new Error("Omgjøring av Word, Excel og PowerPoint virker bare i Windows-appen.");
+  return new Uint8Array(await invoke<ArrayBuffer>("convert_office", { path }));
 }
 
 /** Velg PDF-er eller bilder (bilder gjøres om til PDF). */
