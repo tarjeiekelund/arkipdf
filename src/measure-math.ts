@@ -76,6 +76,29 @@ export function pathDistance(p: Pt, points: Pt[], closed = false): number {
   return best;
 }
 
+/**
+ * Hvor et nytt punkt ved `p` skal inn i en polylinje: indeksen det settes inn
+ * på (før punktet med den indeksen) og punktet flyttet inn på nærmeste kant.
+ * Lukket: kanten fra siste til første punkt teller også (settes inn til slutt).
+ */
+export function insertionPoint(p: Pt, points: Pt[], closed = false): { index: number; p: Pt } {
+  let best = { index: 1, p: points[0], d: Infinity };
+  const n = points.length;
+  const edges = closed && n > 2 ? n : n - 1;
+  for (let i = 0; i < edges; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % n];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0;
+    const q: Pt = [a[0] + t * dx, a[1] + t * dy];
+    const d = distance(p, q);
+    if (d < best.d) best = { index: i + 1, p: q, d };
+  }
+  return { index: best.index, p: best.p };
+}
+
 /** Om `p` ligger inne i polygonet (strålekasting). */
 export function insidePolygon(p: Pt, points: Pt[]): boolean {
   let inside = false;

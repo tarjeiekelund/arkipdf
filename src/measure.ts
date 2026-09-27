@@ -10,6 +10,7 @@ import {
   formatArea,
   formatLength,
   formatPaper,
+  insertionPoint,
   insidePolygon,
   metersPerPointForScale,
   pathDistance,
@@ -96,7 +97,7 @@ export class Measure {
   private toolBefore: "select" | "hand" = "select";
   private down: { x: number; y: number } | null = null;
   /** Et mål som dras: ett punkt (`node`) eller hele målet (`node` er null). */
-  private grab: { id: number; page: number; node: number | null; via: "node" | "label" | "inside"; x: number; y: number; from: Pt; points: Pt[]; moved: boolean } | null = null;
+  private grab: { id: number; page: number; node: number | null; via: "node" | "edge" | "label" | "inside"; x: number; y: number; from: Pt; points: Pt[]; moved: boolean } | null = null;
   /** Tidligere tilstander for Ctrl+Z. */
   private history: Measurement[][] = [];
   private doc: PDFDocumentProxy | null = null;
@@ -479,8 +480,10 @@ export class Measure {
           this.markDirty();
           return;
         }
-        // Klikk på etiketten eller inne i flaten velger målet. Klikk på et
+        // Klikk på etiketten eller inne i flaten velger målet, og klikk på
+        // kanten beholder valget (dobbeltklikk der gir nytt punkt). Klikk på et
         // punkt uten å dra starter et nytt mål der, som før.
+        if (g.via === "edge") return;
         if (g.via !== "node") return this.select(g.id, false);
       }
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
@@ -516,7 +519,27 @@ export class Measure {
       if (!this.active) return;
       e.preventDefault();
       if (this.drawing && this.kind !== "distance") this.finish();
+      else if (!this.drawing && !this.calibrating) this.insertNode(e);
     });
+  }
+
+  /**
+   * Dobbeltklikk på kanten av valgt lengde- eller arealmål gir et nytt punkt.
+   * (Hendelsen kan gå til visningen etter at musa ble holdt, så punktet
+   * regnes ut fra målets side.)
+   */
+  private insertNode(e: MouseEvent): void {
+    const m = this.items.find((x) => x.id === this.selected);
+    const hit = m && m.kind !== "distance" ? this.hitPage(e, m.page) : null;
+    if (!m || !hit) return;
+    const ppp = this.pointsPerPixel(m.page);
+    if (pathDistance(hit.p, m.points, m.kind === "area") > ppp * 6) return;
+    if (m.points.some((p) => distance(p, hit.p) <= ppp * 8)) return;
+    const { index, p } = insertionPoint(hit.p, m.points, m.kind === "area");
+    this.remember();
+    m.points = [...m.points.slice(0, index), p, ...m.points.slice(index)];
+    this.redraw(m.page);
+    this.markDirty();
   }
 
   /** Flytter et punkt eller hele målet mens det dras. */
@@ -554,7 +577,7 @@ export class Measure {
    * nær kantene eller når punktet festes til tegningen, for der starter man
    * nye mål (f.eks. rommet ved siden av, med felles hjørner).
    */
-  private grabTarget(e: MouseEvent): { id: number; node: number | null; via: "node" | "label" | "inside" } | null {
+  private grabTarget(e: MouseEvent): { id: number; node: number | null; via: "node" | "edge" | "label" | "inside" } | null {
     const labelEl = (e.target as HTMLElement).closest(".measure-label[data-id]") as HTMLElement | null;
     if (labelEl) return { id: Number(labelEl.dataset.id), node: null, via: "label" };
     const hit = this.hitPage(e);
@@ -572,6 +595,8 @@ export class Measure {
         }
       });
       if (node >= 0) return { id: sel.id, node, via: "node" };
+      // Kanten på valgt lengde/areal: dra flytter målet, dobbeltklikk gir nytt punkt.
+      if (sel.kind !== "distance" && pathDistance(hit.p, sel.points, sel.kind === "area") <= ppp * 6) return { id: sel.id, node: null, via: "edge" };
     }
     if (this.snapOn && !e.altKey && !e.shiftKey && this.snapIndex(hit.page)?.query(hit.p, ppp * 10)) return null;
     for (let i = this.items.length - 1; i >= 0; i--) {
@@ -798,7 +823,7 @@ export class Measure {
     if (this.drawing || this.calibrating) delete this.viewer.el.dataset.mhover;
     let t: string;
     if (this.calibrating) t = this.drawing ? "Klikk sluttpunktet på det kjente målet" : "Kalibrer: klikk startpunktet på et kjent mål";
-    else if (!this.drawing && this.selected !== null) t = "Dra punktene eller etiketten · Delete sletter";
+    else if (!this.drawing && this.selected !== null) t = "Dra punktene · dobbeltklikk på kanten gir nytt punkt · Delete sletter";
     else if (!this.drawing) t = this.kind === "distance" ? "Klikk startpunkt" : "Klikk første punkt";
     else if (this.kind === "distance") t = "Klikk sluttpunkt · Shift låser vinkelen";
     else if (this.kind === "length") t = "Klikk flere punkter · dobbeltklikk eller Enter avslutter";

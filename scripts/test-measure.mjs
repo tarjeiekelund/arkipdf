@@ -5,6 +5,7 @@ import {
   centroid,
   formatArea,
   formatLength,
+  insertionPoint,
   insidePolygon,
   metersPerPointForScale,
   pathDistance,
@@ -37,6 +38,11 @@ near(pathDistance([80, 5], room, true), 5);
 near(pathDistance([-3, 60], room, true), 3);
 assert.ok(pathDistance([-3, 60], room, false) > 50); // åpen: venstre side mangler
 near(pathDistance([200, 0], [[0, 0], [160, 0]]), 40);
+// Nytt punkt (dobbeltklikk på en kant) havner på kanten, i riktig rekkefølge.
+assert.deepEqual(insertionPoint([80, 3], room, true), { index: 1, p: [80, 0] });
+assert.deepEqual(insertionPoint([163, 60], room, true), { index: 2, p: [160, 60] });
+assert.deepEqual(insertionPoint([-2, 60], room, true), { index: 4, p: [0, 60] });
+assert.deepEqual(insertionPoint([50, 2], [[0, 0], [100, 0], [100, 100]]), { index: 1, p: [50, 0] });
 
 // Shift låser til nærmeste 45°.
 const s = snap45([0, 0], [100, 8]);
