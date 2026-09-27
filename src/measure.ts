@@ -10,7 +10,10 @@ import {
   formatArea,
   formatLength,
   formatPaper,
+  insertionPoint,
+  insidePolygon,
   metersPerPointForScale,
+  pathDistance,
   pathLength,
   PAPER_METERS_PER_POINT,
   polygonArea,
@@ -93,6 +96,10 @@ export class Measure {
   private token = 0;
   private toolBefore: "select" | "hand" = "select";
   private down: { x: number; y: number } | null = null;
+  /** Et mål som dras: ett punkt (`node`) eller hele målet (`node` er null). */
+  private grab: { id: number; page: number; node: number | null; via: "node" | "edge" | "label" | "inside"; x: number; y: number; from: Pt; points: Pt[]; moved: boolean } | null = null;
+  /** Tidligere tilstander for Ctrl+Z. */
+  private history: Measurement[][] = [];
   private doc: PDFDocumentProxy | null = null;
   private snapOn = store.get("measureSnap") !== "0";
   private snaps = new Map<number, SnapIndex | null>();
@@ -101,7 +108,7 @@ export class Measure {
   /** Endringer som ikke er lagret i fila. */
   dirty = false;
   /** Kalles med nye filbytes når målene skal lagres. */
-  onSave: ((bytes: Uint8Array) => Promise<void>) | null = null;
+  onSave: ((bytes: Uint8Array) => Promise<boolean | void>) | null = null;
   private saveBtn: HTMLButtonElement;
 
   private kindButtons: Record<MeasureKind, HTMLButtonElement>;
@@ -190,6 +197,8 @@ export class Measure {
     const token = ++this.token;
     this.doc = doc;
     this.items = [];
+    this.history = [];
+    this.grab = null;
     this.selected = null;
     this.drawing = null;
     this.calibrating = false;
@@ -220,6 +229,23 @@ export class Measure {
       });
   }
 
+  /** Husker målene slik de er nå, så neste endring kan angres. */
+  private remember(): void {
+    this.history.push(this.items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) })));
+    if (this.history.length > 100) this.history.shift();
+  }
+
+  private undo(): void {
+    const prev = this.history.pop();
+    if (!prev) return;
+    const pages = new Set([...this.items, ...prev].map((m) => m.page));
+    this.items = prev;
+    if (!prev.some((m) => m.id === this.selected)) this.selected = null;
+    for (const p of pages) this.redraw(p);
+    this.markDirty();
+    this.updateHint();
+  }
+
   private markDirty(): void {
     if (!this.dirty) {
       this.dirty = true;
@@ -247,8 +273,8 @@ export class Measure {
     });
     try {
       const out = await writeMeasurements(this.bytesSource(), items, this.pageScale, this.defaultScale);
-      this.dirty = false;
-      await this.onSave(out);
+      // `false`: brukeren avbrøt (f.eks. valg av filnavn), målene er fortsatt ulagret.
+      if ((await this.onSave(out)) !== false) this.dirty = false;
     } catch (e) {
       toast(`Kunne ikke lagre målene: ${errorMessage(e)}`, "error");
     }
@@ -429,19 +455,56 @@ export class Measure {
     const el = this.viewer.el;
     el.addEventListener("pointerdown", (e) => {
       if (!this.active || e.button !== 0 || this.viewer.panKeyHeld || this.viewer.tool === "hand") return;
-      if ((e.target as HTMLElement).closest(".measure-label")) return;
+      // Ikke marker tekst i PDF-en når man klikker eller drar under måling
+      // (men la rullefeltet være i fred).
+      if ((e.target as HTMLElement).closest(".page")) e.preventDefault();
+      el.focus({ preventScroll: true });
       this.down = { x: e.clientX, y: e.clientY };
+      if (this.drawing || this.calibrating) return;
+      const t = this.grabTarget(e);
+      const m = t && this.items.find((x) => x.id === t.id);
+      const from = m && this.hitPage(e, m.page);
+      if (!t || !m || !from) return;
+      this.grab = { ...t, page: m.page, x: e.clientX, y: e.clientY, from: from.p, points: m.points.map((p) => [p[0], p[1]] as Pt), moved: false };
+      el.setPointerCapture(e.pointerId);
     });
     el.addEventListener("pointerup", (e) => {
       const d = this.down;
+      const g = this.grab;
       this.down = null;
+      this.grab = null;
       if (!this.active || !d || e.button !== 0) return;
+      if (g) {
+        el.classList.remove("m-dragging");
+        if (g.moved) {
+          this.markDirty();
+          return;
+        }
+        // Klikk på etiketten eller inne i flaten velger målet, og klikk på
+        // kanten beholder valget (dobbeltklikk der gir nytt punkt). Klikk på et
+        // punkt uten å dra starter et nytt mål der, som før.
+        if (g.via === "edge") return;
+        if (g.via !== "node") return this.select(g.id, false);
+      }
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
-      const hit = this.resolve(e);
+      // Mens et mål holdes, går hendelsene til visningen; bruk målets side.
+      const hit = this.resolve(e, g?.page);
       if (hit) this.click(hit.page, hit.p, e.shiftKey && !hit.snapped);
+    });
+    el.addEventListener("pointercancel", () => {
+      const g = this.grab;
+      this.grab = null;
+      this.down = null;
+      el.classList.remove("m-dragging");
+      if (g?.moved) this.markDirty();
     });
     el.addEventListener("pointermove", (e) => {
       if (!this.active) return;
+      if (this.grab) return this.drag(e, this.grab);
+      if (!this.drawing && !this.calibrating) {
+        const t = e.buttons ? null : this.grabTarget(e);
+        el.dataset.mhover = t ? (t.via === "node" ? "node" : "body") : "";
+      }
       const hit = this.resolve(e);
       if (!hit || (this.drawing && hit.page !== this.drawing.page)) return;
       if (!this.drawing && !this.calibrating) return;
@@ -456,17 +519,112 @@ export class Measure {
       if (!this.active) return;
       e.preventDefault();
       if (this.drawing && this.kind !== "distance") this.finish();
+      else if (!this.drawing && !this.calibrating) this.insertNode(e);
     });
   }
 
-  /** Siden og PDF-punktet under musepekeren. */
-  private hitPage(e: MouseEvent): { page: number; p: Pt } | null {
-    const pageEl = (e.target as HTMLElement).closest(".page") as HTMLElement | null;
-    if (!pageEl) return null;
-    const page = Number(pageEl.dataset.index);
+  /**
+   * Dobbeltklikk på kanten av valgt lengde- eller arealmål gir et nytt punkt.
+   * (Hendelsen kan gå til visningen etter at musa ble holdt, så punktet
+   * regnes ut fra målets side.)
+   */
+  private insertNode(e: MouseEvent): void {
+    const m = this.items.find((x) => x.id === this.selected);
+    const hit = m && m.kind !== "distance" ? this.hitPage(e, m.page) : null;
+    if (!m || !hit) return;
+    const ppp = this.pointsPerPixel(m.page);
+    if (pathDistance(hit.p, m.points, m.kind === "area") > ppp * 6) return;
+    if (m.points.some((p) => distance(p, hit.p) <= ppp * 8)) return;
+    const { index, p } = insertionPoint(hit.p, m.points, m.kind === "area");
+    this.remember();
+    m.points = [...m.points.slice(0, index), p, ...m.points.slice(index)];
+    this.redraw(m.page);
+    this.markDirty();
+  }
+
+  /** Flytter et punkt eller hele målet mens det dras. */
+  private drag(e: PointerEvent, g: NonNullable<Measure["grab"]>): void {
+    if (!g.moved) {
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 4) return;
+      g.moved = true;
+      this.remember();
+      this.viewer.el.classList.add("m-dragging");
+      if (this.selected !== g.id) {
+        this.selected = g.id;
+        this.redrawAll();
+        this.updateHint();
+      }
+    }
+    const m = this.items.find((x) => x.id === g.id);
+    if (!m) return;
+    if (g.node !== null) {
+      // Punktet festes til tegningen som når man måler.
+      const hit = this.resolve(e, g.page);
+      if (hit) m.points = g.points.map((p, i) => (i === g.node ? hit.p : p));
+    } else {
+      const hit = this.hitPage(e, g.page);
+      if (!hit) return;
+      const dx = hit.p[0] - g.from[0];
+      const dy = hit.p[1] - g.from[1];
+      m.points = g.points.map((p) => [p[0] + dx, p[1] + dy] as Pt);
+    }
+    this.redraw(g.page);
+  }
+
+  /**
+   * Hva et trykk treffer når man ikke er midt i en måling: et punkt på det
+   * valgte målet, en etikett, eller innsiden av et areal. Innsiden teller ikke
+   * nær kantene eller når punktet festes til tegningen, for der starter man
+   * nye mål (f.eks. rommet ved siden av, med felles hjørner).
+   */
+  private grabTarget(e: MouseEvent): { id: number; node: number | null; via: "node" | "edge" | "label" | "inside" } | null {
+    const labelEl = (e.target as HTMLElement).closest(".measure-label[data-id]") as HTMLElement | null;
+    if (labelEl) return { id: Number(labelEl.dataset.id), node: null, via: "label" };
+    const hit = this.hitPage(e);
+    if (!hit) return null;
+    const ppp = this.pointsPerPixel(hit.page);
+    const sel = this.items.find((m) => m.id === this.selected && m.page === hit.page);
+    if (sel) {
+      let node = -1;
+      let best = ppp * 8;
+      sel.points.forEach((p, i) => {
+        const d = distance(p, hit.p);
+        if (d <= best) {
+          best = d;
+          node = i;
+        }
+      });
+      if (node >= 0) return { id: sel.id, node, via: "node" };
+      // Kanten på valgt lengde/areal: dra flytter målet, dobbeltklikk gir nytt punkt.
+      if (sel.kind !== "distance" && pathDistance(hit.p, sel.points, sel.kind === "area") <= ppp * 6) return { id: sel.id, node: null, via: "edge" };
+    }
+    if (this.snapOn && !e.altKey && !e.shiftKey && this.snapIndex(hit.page)?.query(hit.p, ppp * 10)) return null;
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const m = this.items[i];
+      if (m.page !== hit.page || m.kind !== "area") continue;
+      if (insidePolygon(hit.p, m.points) && pathDistance(hit.p, m.points, true) > ppp * 8) return { id: m.id, node: null, via: "inside" };
+    }
+    return null;
+  }
+
+  /** Siden og PDF-punktet under musepekeren (eller på en gitt side, f.eks. mens man drar). */
+  private hitPage(e: MouseEvent, onPage?: number): { page: number; p: Pt } | null {
+    let page: number;
+    let box: Element;
+    if (onPage !== undefined) {
+      const l = this.layers.get(onPage);
+      if (!l || !l.el.isConnected) return null;
+      page = onPage;
+      box = l.el;
+    } else {
+      const pageEl = (e.target as HTMLElement).closest(".page") as HTMLElement | null;
+      if (!pageEl) return null;
+      page = Number(pageEl.dataset.index);
+      box = pageEl;
+    }
     const layer = this.layers.get(page);
     if (!layer) return null;
-    const r = pageEl.getBoundingClientRect();
+    const r = box.getBoundingClientRect();
     const g = layer.geom;
     const vx = ((e.clientX - r.left) / r.width) * g.width;
     const vy = ((e.clientY - r.top) / r.height) * g.height;
@@ -479,8 +637,8 @@ export class Measure {
    * skjæringer og linjer i tegningen (ikke med Shift, som låser vinkelen,
    * og ikke mens Alt holdes inne).
    */
-  private resolve(e: MouseEvent): { page: number; p: Pt; snapped: boolean } | null {
-    const raw = this.hitPage(e);
+  private resolve(e: MouseEvent, onPage?: number): { page: number; p: Pt; snapped: boolean } | null {
+    const raw = this.hitPage(e, onPage);
     if (!raw) {
       this.showMarker(null);
       return null;
@@ -578,6 +736,7 @@ export class Measure {
       points: d.points,
       fixed: region ? { metersPerPoint: region.metersPerPoint, label: `${region.label} fra PDF` } : null,
     };
+    this.remember();
     this.items.push(m);
     this.selected = m.id;
     this.drawing = null;
@@ -599,15 +758,18 @@ export class Measure {
   private remove(id: number): void {
     const m = this.items.find((x) => x.id === id);
     if (!m) return;
+    this.remember();
     this.items = this.items.filter((x) => x.id !== id);
     if (this.selected === id) this.selected = null;
     this.redraw(m.page);
     this.markDirty();
+    this.updateHint();
   }
 
   private clearAll(): void {
     const pages = new Set(this.items.map((m) => m.page));
     if (!this.items.length) return;
+    this.remember();
     this.items = [];
     this.selected = null;
     for (const p of pages) this.redraw(p);
@@ -621,6 +783,9 @@ export class Measure {
     if (reveal && m.page !== this.viewer.current) this.viewer.goToPage(m.page);
     this.redrawAll();
     this.refreshPanel();
+    this.updateHint();
+    // Så Delete og Backspace når fram, også etter klikk i lista.
+    this.viewer.el.focus({ preventScroll: true });
   }
 
   handleKey(e: KeyboardEvent): boolean {
@@ -633,6 +798,7 @@ export class Measure {
         this.selected = null;
         this.redrawAll();
         this.refreshPanel();
+        this.updateHint();
       } else this.close();
     } else if (ctrl && k.toLowerCase() === "s") void this.save();
     else if (k === "Enter") this.finish();
@@ -643,7 +809,7 @@ export class Measure {
       this.drawPreview(page);
       this.updateHint();
     } else if ((k === "Delete" || k === "Backspace") && this.selected !== null) this.remove(this.selected);
-    else if (ctrl && k.toLowerCase() === "z" && !this.drawing && this.items.length) this.remove(this.items[this.items.length - 1].id);
+    else if (ctrl && k.toLowerCase() === "z" && !this.drawing) this.undo();
     else if (!ctrl && (k === "d" || k === "D")) this.setKind("distance");
     else if (!ctrl && (k === "l" || k === "L")) this.setKind("length");
     else if (!ctrl && (k === "a" || k === "A")) this.setKind("area");
@@ -654,13 +820,16 @@ export class Measure {
   private updateHint(): void {
     // Mens man måler, skal etikettene til andre mål ikke fange klikkene.
     this.viewer.el.classList.toggle("m-drawing", !!this.drawing || this.calibrating);
+    if (this.drawing || this.calibrating) delete this.viewer.el.dataset.mhover;
     let t: string;
     if (this.calibrating) t = this.drawing ? "Klikk sluttpunktet på det kjente målet" : "Kalibrer: klikk startpunktet på et kjent mål";
+    else if (!this.drawing && this.selected !== null) t = "Dra punktene · dobbeltklikk på kanten gir nytt punkt · Delete sletter";
     else if (!this.drawing) t = this.kind === "distance" ? "Klikk startpunkt" : "Klikk første punkt";
     else if (this.kind === "distance") t = "Klikk sluttpunkt · Shift låser vinkelen";
     else if (this.kind === "length") t = "Klikk flere punkter · dobbeltklikk eller Enter avslutter";
     else t = "Klikk hjørnene · klikk startpunktet, dobbeltklikk eller Enter lukker";
     this.hint.textContent = t;
+    this.hint.title = t;
   }
 
   // ---------- Verdier ----------
@@ -781,18 +950,12 @@ export class Measure {
     return layer.geom.convertToViewportPoint(p[0], p[1]) as Pt;
   }
 
-  private label(layer: Layer, at: Pt, main: string, sub: string | undefined, cls: string, onClick?: () => void): HTMLDivElement {
+  /** Etikett med verdien. Med `id` kan den klikkes (velger målet) og dras (flytter det). */
+  private label(layer: Layer, at: Pt, main: string, sub: string | undefined, cls: string, id?: number): HTMLDivElement {
     const [x, y] = this.toView(layer, at);
-    const el = h("div", { class: `measure-label ${cls}` }, h("span", {}, main), sub ? h("small", {}, sub) : null);
+    const el = h("div", { class: `measure-label ${cls}`, "data-id": id }, h("span", {}, main), sub ? h("small", {}, sub) : null);
     el.style.left = `${(x / layer.geom.width) * 100}%`;
     el.style.top = `${(y / layer.geom.height) * 100}%`;
-    if (onClick) {
-      el.addEventListener("pointerdown", (e) => e.stopPropagation());
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onClick();
-      });
-    }
     return el;
   }
 
@@ -840,7 +1003,7 @@ export class Measure {
       for (const p of m.points) labels.push(this.dot(layer, p, sel));
       const d = this.describe(m);
       const at = closed ? centroid(m.points) : this.midpoint(m.points);
-      labels.push(this.label(layer, at, d.main, d.sub, sel, () => this.select(m.id, false)));
+      labels.push(this.label(layer, at, d.main, d.sub, sel, m.id));
     }
     const preview = document.createElementNS(SVG, "g");
     preview.setAttribute("class", "m-preview");

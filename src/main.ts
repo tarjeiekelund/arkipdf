@@ -1,3 +1,4 @@
+import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 import { rearrangePages, type PageItem } from "./edit";
 import { openExportDialog } from "./exportpng";
@@ -11,19 +12,20 @@ import {
   dirName,
   isTauri,
   listScreens,
+  onCloseRequested,
   onFilesDropped,
   openFile,
   openUrl,
   pickPdfs,
   pickSavePath,
   setTitle,
-  startupFile,
+  startupFiles,
   writeFile,
 } from "./platform";
 import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
 import { Search } from "./search";
-import { busy, button, errorMessage, h, icon, modal, toast } from "./ui";
+import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
 
 interface OpenDoc {
@@ -32,6 +34,8 @@ interface OpenDoc {
   bytes: Uint8Array;
   doc: PDFDocumentProxy;
   thumbs: ThumbCache;
+  /** Finnes ikke som fil ennå (resultat av «Slå sammen»); `path` er forslaget til filnavn. */
+  unsaved: boolean;
 }
 
 let current: OpenDoc | null = null;
@@ -92,35 +96,54 @@ const viewControls = h(
   h("span", { class: "sep" }),
 );
 
-const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)" }));
+const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
 measure.onChange = () => refresh();
 measure.bytesSource = () => current!.bytes;
 // Lagre mål: skriv fila og åpne den på nytt på samme side, med måling fortsatt på.
 measure.onSave = async (bytes) => {
-  if (!current) return;
-  const { path } = current;
+  if (!current) return false;
+  let { path } = current;
+  if (current.unsaved) {
+    const target = await pickSavePath(path, "Lagre sammenslått PDF");
+    if (!target) return false;
+    path = target;
+  }
   const page = viewer.current;
   const b = busy("Lagrer målene…");
   try {
     await writeFile(path, bytes);
-    await openPath(path, page, bytes);
+    await openPath(path, { page, bytes, discard: true });
     measure.open();
     toast("Målene er lagret i fila", "success");
+    return true;
   } catch (e) {
     toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
+    return false;
   } finally {
     b.done();
   }
 };
 
-const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", primary: true, className: "split-main" }));
-const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", primary: true, className: "split-caret" }));
+// Stripe over et sammenslått dokument som ikke er lagret ennå.
+const unsavedBar = h(
+  "div",
+  { class: "subbar unsaved-bar" },
+  h("strong", {}, "Ikke lagret"),
+  h("span", { class: "muted hint" }, "Se over det sammenslåtte dokumentet. Bruk «Sorter sider» for å flytte, rotere eller slette sider før du lagrer."),
+  h("span", { class: "spacer" }),
+  button("Forkast", null, () => void discardUnsaved(), { title: "Lukk uten å lagre" }),
+  button("Lagre…", "save", () => void saveUnsaved(), { primary: true, title: "Lagre som PDF (Ctrl+S)" }),
+);
+
+const presentBtn = docBtn(button("Presenter", "present", () => void startPresentation(), { title: "Fullskjerm-presentasjon (Ctrl+L)", className: "split-main" }));
+const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { title: "Velg skjerm for presentasjonen", className: "split-caret" }));
 
 const toolbar = h(
   "header",
   { class: "toolbar" },
-  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)" }),
-  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)" }),
+  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)", className: "keep-label" }),
+  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)", className: "keep-label" }),
+  h("span", { class: "sep" }),
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
   docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
@@ -156,8 +179,8 @@ function emptyState(): HTMLElement {
   return h(
     "div",
     { class: "empty" },
-    h("div", { class: "empty-icon", html: icon("file") }),
-    h("h1", {}, "Blad"),
+    h("div", { class: "empty-icon", html: logo() }),
+    h("h1", {}, "ArkiPDF"),
     h("p", { class: "muted" }, "Åpne en PDF, eller dra en fil inn i vinduet."),
     button("Åpne PDF…", "open", () => void openDialog(), { primary: true, className: "big" }),
     recentList(),
@@ -280,6 +303,7 @@ function refresh(): void {
   selectBtn.classList.toggle("active", viewer.tool === "select");
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
+  unsavedBar.hidden = !current?.unsaved;
   if (hasDoc) {
     if (document.activeElement !== pageInput) pageInput.value = String(viewer.current + 1);
     pageTotal.textContent = `av ${viewer.pageCount}`;
@@ -449,6 +473,9 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
 }
 
 async function confirmDiscard(): Promise<boolean> {
+  if (current?.unsaved) {
+    return confirmDialog(`«${current.name}» er ikke lagret. Forkaste det sammenslåtte dokumentet?\n\n(Velg «Nei» og trykk Ctrl+S for å lagre.)`);
+  }
   if (organizer?.dirty) return confirmDialog("Du har endringer i siderekkefølgen som ikke er lagret. Forkaste dem?");
   if (measure.dirty) {
     const ok = await confirmDialog("Du har mål som ikke er lagret i fila. Forkaste dem?\n\n(Velg «Nei» og trykk Ctrl+S i måleverktøyet for å lagre.)");
@@ -463,8 +490,20 @@ async function openDialog(): Promise<void> {
   if (path) await openPath(path);
 }
 
-async function openPath(path: string, startPage?: number, preloaded?: Uint8Array): Promise<void> {
-  if (!(await confirmDiscard())) return;
+interface OpenOptions {
+  /** Side å starte på (ellers den som er husket). */
+  page?: number;
+  /** Innholdet, når det allerede er i minnet. */
+  bytes?: Uint8Array;
+  /** Dokumentet finnes ikke som fil ennå; `path` er forslaget til filnavn. */
+  unsaved?: boolean;
+  /** Erstatter gjeldende dokument med en ny versjon av det; ikke spør om å forkaste. */
+  discard?: boolean;
+}
+
+async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
+  const { page: startPage, bytes: preloaded, unsaved = false } = opts;
+  if (!opts.discard && !(await confirmDiscard())) return;
   closeOrganizer();
   const loading = h("div", { class: "loading" }, h("div", { class: "spinner" }), `Åpner ${baseName(path)}…`);
   content.replaceChildren(loading);
@@ -476,21 +515,26 @@ async function openPath(path: string, startPage?: number, preloaded?: Uint8Array
       return;
     }
     const old = current;
-    current = { ...file, doc, thumbs: new ThumbCache(doc, 320) };
-    const remembered = recentFiles().find((r) => r.path === path)?.page ?? 0;
+    current = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved };
+    const remembered = unsaved ? 0 : (recentFiles().find((r) => r.path === path)?.page ?? 0);
     const page = Math.min(startPage ?? remembered, doc.numPages - 1);
-    rememberFile(path, file.name, page);
+    if (!unsaved) rememberFile(path, file.name, page);
     if (old) {
       old.thumbs.dispose();
       void old.doc.loadingTask.destroy();
     }
-    await setTitle(`${file.name} – Blad`);
+    await updateTitle();
     showCurrent(page);
   } catch (e) {
     toast(`Kunne ikke åpne ${baseName(path)}: ${errorMessage(e)}`, "error");
     if (!preloaded) forgetFile(path);
     showCurrent();
   }
+}
+
+function updateTitle(): Promise<void> {
+  if (!current) return setTitle("ArkiPDF");
+  return setTitle(`${current.name}${current.unsaved ? " (ikke lagret)" : ""} – ArkiPDF`);
 }
 
 /** Viser gjeldende dokument (eller startsiden) i innholdsfeltet. */
@@ -500,7 +544,7 @@ function showCurrent(startPage = 0): void {
     refresh();
     return;
   }
-  content.replaceChildren(measure.bar, viewer.el, search.el, measure.panel);
+  content.replaceChildren(unsavedBar, measure.bar, viewer.el, search.el, measure.panel);
   if (viewer.document !== current.doc) {
     search.setDocument(current.doc);
     measure.close();
@@ -551,7 +595,7 @@ async function openScreenMenu(): Promise<void> {
     "div",
     { class: "popover", role: "menu" },
     h("div", { class: "popover-title" }, "Presenter på"),
-    item("Skjermen Blad står på", null, !chosen),
+    item("Skjermen ArkiPDF står på", null, !chosen),
     ...screens.filter((x) => !x.current).map((x) => item(x.label, x.id, x.id === chosen)),
     screens.length <= 1 ? h("div", { class: "popover-note muted" }, isTauri ? "Bare én skjerm er tilkoblet. Koble til projektoren som «Utvid skjerm» (Windows+P) for å velge den her." : "Skjermvalg finnes i Windows-appen.") : null,
   );
@@ -583,14 +627,17 @@ async function openScreenMenu(): Promise<void> {
 function startOrganize(): void {
   if (!current || organizer) return;
   const doc = current;
-  const save = async (items: PageItem[], target: string) => {
-    const b = busy("Lagrer…");
+  // `target` null: dokumentet er ikke lagret ennå, så endringene bare tas i bruk.
+  const save = async (items: PageItem[], target: string | null) => {
+    const b = busy(target ? "Lagrer…" : "Setter sammen sidene…");
     try {
       const out = await rearrangePages(doc.bytes, items, doc.name);
-      await writeFile(target, out);
-      toast(`Lagret ${baseName(target)}`, "success");
+      if (target) {
+        await writeFile(target, out);
+        toast(`Lagret ${baseName(target)}`, "success");
+      }
       organizer = null;
-      await openPath(target, 0, out);
+      await openPath(target ?? doc.path, { page: 0, bytes: out, unsaved: !target, discard: true });
     } catch (e) {
       toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
     } finally {
@@ -598,9 +645,9 @@ function startOrganize(): void {
     }
   };
   organizer = new Organizer(doc.doc.numPages, doc.thumbs, {
-    save: (items) => save(items, doc.path),
+    save: (items) => save(items, doc.unsaved ? null : doc.path),
     saveAs: async (items) => {
-      const target = await pickSavePath(doc.path.replace(/\.pdf$/i, " (sortert).pdf"));
+      const target = await pickSavePath(doc.unsaved ? doc.path : doc.path.replace(/\.pdf$/i, " (sortert).pdf"));
       if (target) await save(items, target);
     },
     close: async () => {
@@ -608,7 +655,7 @@ function startOrganize(): void {
       closeOrganizer();
       showCurrent();
     },
-  });
+  }, doc.unsaved);
   if (search.isOpen) search.close();
   measure.close();
   content.replaceChildren(organizer.el);
@@ -624,7 +671,45 @@ function closeOrganizer(): void {
 
 function startMerge(): void {
   if (organizer) return;
-  openMergeDialog(current && isTauri ? [current.path] : [], (path) => void openPath(path));
+  openMergeDialog(current && isTauri && !current.unsaved ? [current.path] : [], showMerged);
+}
+
+/** Viser resultatet av «Slå sammen» uten å lagre det, så det kan ses over først. */
+function showMerged(bytes: Uint8Array, suggestedPath: string): void {
+  void openPath(suggestedPath, { page: 0, bytes, unsaved: true });
+}
+
+/** Lagrer et sammenslått dokument som ikke er lagret ennå. */
+async function saveUnsaved(): Promise<void> {
+  const doc = current;
+  if (!doc?.unsaved) return;
+  const target = await pickSavePath(doc.path, "Lagre sammenslått PDF");
+  if (!target || current !== doc) return;
+  const b = busy("Lagrer…");
+  try {
+    await writeFile(target, doc.bytes);
+    doc.path = target;
+    doc.name = baseName(target);
+    doc.unsaved = false;
+    rememberFile(target, doc.name, viewer.current);
+    await updateTitle();
+    refresh();
+    toast(`Lagret ${doc.name}`, "success");
+  } catch (e) {
+    toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
+}
+
+async function discardUnsaved(): Promise<void> {
+  if (!current?.unsaved || !(await confirmDiscard())) return;
+  const old = current;
+  current = null;
+  old.thumbs.dispose();
+  void old.doc.loadingTask.destroy();
+  await updateTitle();
+  showCurrent();
 }
 
 function startPrint(): void {
@@ -664,6 +749,7 @@ window.addEventListener("keydown", (e) => {
   // Ctrl+P fanges alltid, ellers ville nettleserdelen skrevet ut selve programvinduet.
   else if (ctrl && k === "p") startPrint();
   else if (!current) handled = false;
+  else if (ctrl && k === "s" && current.unsaved) void saveUnsaved();
   else if (ctrl && k === "f") search.open();
   else if (e.key === "F3") search.step(e.shiftKey ? -1 : 1);
   else if (e.key === "Escape" && search.isOpen) search.close();
@@ -713,14 +799,19 @@ if (isTauri) {
 onFilesDropped(
   (paths) => {
     if (paths.length === 1 && !document.querySelector(".backdrop")) void openPath(paths[0]);
-    else openMergeDialog(paths, (p) => void openPath(p));
+    else openMergeDialog(paths, showMerged);
   },
   (on) => dropOverlay.classList.toggle("show", on),
 );
 
 // ---------- Oppstart ----------
 
+// Spør før vinduet lukkes med noe som ikke er lagret.
+onCloseRequested(confirmDiscard);
+
 showCurrent();
-void startupFile().then((p) => {
-  if (p) void openPath(p);
+// Flere filer (eller «Send til → ArkiPDF – slå sammen PDF-er» i Utforsker) åpner sammenslåingen.
+void startupFiles().then(({ files, merge }) => {
+  if (files.length === 1 && !merge) void openPath(files[0]);
+  else if (files.length) openMergeDialog(files, showMerged);
 });

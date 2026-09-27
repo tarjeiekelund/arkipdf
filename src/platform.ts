@@ -100,9 +100,22 @@ export async function openFile(path: string): Promise<OpenedFile> {
   return { path, name: baseName(path), bytes: await readFile(path) };
 }
 
-export async function startupFile(): Promise<string | null> {
-  if (!isTauri) return null;
-  return invoke<string | null>("startup_file");
+/**
+ * PDF-ene programmet ble startet med (dobbeltklikk, «Åpne med», eller flere
+ * filer via «Send til»). `merge` er satt når ArkiPDF ble startet for å slå sammen.
+ */
+export async function startupFiles(): Promise<{ files: string[]; merge: boolean }> {
+  if (!isTauri) return { files: [], merge: false };
+  const [merge, files] = await invoke<[boolean, string[]]>("startup_files");
+  return { files, merge };
+}
+
+/** `confirm` avgjør om vinduet får lukkes (f.eks. når noe ikke er lagret). */
+export function onCloseRequested(confirm: () => Promise<boolean>): void {
+  if (!isTauri) return;
+  void getCurrentWindow().onCloseRequested(async (e) => {
+    if (!(await confirm())) e.preventDefault();
+  });
 }
 
 export async function setTitle(title: string): Promise<void> {
@@ -192,7 +205,7 @@ export async function isFullscreen(): Promise<boolean> {
   return !!document.fullscreenElement;
 }
 
-export async function confirmDialog(message: string, title = "Blad"): Promise<boolean> {
+export async function confirmDialog(message: string, title = "ArkiPDF"): Promise<boolean> {
   if (!isTauri) return window.confirm(message);
   return dialog.ask(message, { title, kind: "warning", okLabel: "Ja", cancelLabel: "Nei" });
 }

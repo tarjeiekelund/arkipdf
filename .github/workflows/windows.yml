@@ -1,4 +1,4 @@
-# Bygger Windows-installeren for Blad.
+# Bygger Windows-installeren for ArkiPDF.
 #
 # - Hver push og pull request gir en installer som artefakt på kjøringen
 #   (Actions → «Windows-bygg» → Artifacts).
@@ -59,7 +59,7 @@ jobs:
         if: ${{ env.RELEASE_TAG == '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Blad-installer
+          name: ArkiPDF-installer
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
@@ -70,10 +70,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: "Blad ${{ env.RELEASE_TAG }}"
+          releaseName: "ArkiPDF ${{ env.RELEASE_TAG }}"
           releaseCommitish: ${{ github.sha }}
           releaseBody: |
-            **Installer:** last ned `Blad_*_x64-setup.exe` under «Assets» og kjør den. Den installeres for din bruker, uten administratorrettigheter. Windows kan advare fordi installeren ikke er signert: velg «Mer informasjon» → «Kjør likevel».
+            **Installer:** last ned `ArkiPDF_*_x64-setup.exe` under «Assets» og kjør den. Den installeres for din bruker, uten administratorrettigheter. Windows kan advare fordi installeren ikke er signert: velg «Mer informasjon» → «Kjør likevel».
 
             Se [README](https://github.com/${{ github.repository }}#readme) for funksjoner og tastatursnarveier.
           releaseDraft: false
