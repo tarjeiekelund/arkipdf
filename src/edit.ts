@@ -77,3 +77,14 @@ function addBookmarks(doc: PDFDocument, items: Array<{ title: string; page: PDFR
   ctx.assign(root, ctx.obj({ Type: "Outlines", First: refs[0], Last: refs[refs.length - 1], Count: refs.length }));
   doc.catalog.set(PDFName.of("Outlines"), root);
 }
+
+/**
+ * Gjør skjemafeltene om til vanlig sideinnhold («låser» skjemaet), med det
+ * utseendet feltene har i fila (pdf.js har tegnet det for utfylte felt).
+ */
+export async function flattenForm(bytes: Uint8Array): Promise<Uint8Array> {
+  const doc = await load(bytes, "Skjemaet");
+  const form = doc.getForm();
+  form.flatten({ updateFieldAppearances: false });
+  return doc.save();
+}

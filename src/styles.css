@@ -626,6 +626,26 @@ main {
   transform: rotate(270deg) translateX(-100%);
 }
 
+/* Skjemafelt (pdf.js sitt AnnotationLayer; stilene ligger i public/pdfjs/annotation_layer.css). */
+.page > .formLayer {
+  z-index: 2;
+}
+
+.formLayer[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.formLayer[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.formLayer[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+/* Mens man måler, markerer eller drar tegningen, skal feltene ikke ta imot klikk. */
+.viewer:is(.measuring, .marking, .hand, .panning) .formLayer section {
+  pointer-events: none;
+}
+
 /* ---------- Startside og lasting ---------- */
 
 /* Startsiden ligger på den lyse bakgrunnen; den mørkere flaten er for dokumenter. */

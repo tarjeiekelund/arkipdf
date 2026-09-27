@@ -22,6 +22,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 | Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
+| Fylle ut skjemaer | Klikk i feltene og skriv. Se [Skjemaer](#skjemaer) |
 
 ### Tegninger
 
@@ -101,6 +102,22 @@ Trykk **K** (eller knappen **Merk**) for å markere på tegningen.
   lagres sammen.
 - Kommentarer laget i andre programmer vises i ArkiPDF, men kan ikke endres
   her.
+
+### Skjemaer
+
+PDF-skjemaer med felt (tekst, avkrysning, radioknapper og nedtrekkslister)
+kan fylles ut rett i ArkiPDF. Feltene er lyseblå; Tab går til neste felt.
+
+- Stripa over dokumentet viser at skjemaet er fylt ut. **Lagre** (Ctrl+S)
+  skriver verdiene inn i fila, så de vises i Acrobat, Edge og andre
+  PDF-lesere. Mål og markeringer lagres samtidig.
+- **Lagre låst kopi…** lagrer en kopi der feltene er gjort om til vanlig
+  innhold, så mottakeren ikke kan endre dem. Skjemaet du fyller ut, er
+  fortsatt åpent.
+- Utskrift tar med verdiene, også før de er lagret.
+- Skjemaer laget med Adobe LiveCycle (XFA) støttes ikke. Er skjemaet bare en
+  flat PDF uten felt, kan du skrive på det med **Tekst** under
+  [Markering](#markering).
 
 ### Presentasjon
 
@@ -209,7 +226,7 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── exportpng.ts eksport til PNG
 │   ├── search.ts    tekstsøk med markering av treff
 │   ├── print.ts     utskrift
-│   ├── edit.ts      skriving av PDF (pdf-lib)
+│   ├── edit.ts      skriving av PDF (pdf-lib): sider, sammenslåing, låsing av skjema
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
 ├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)

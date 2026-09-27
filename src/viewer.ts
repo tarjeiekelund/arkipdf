@@ -7,7 +7,7 @@
 import { buildLinkLayer, resolveDest, type LinkAction, type Target } from "./links";
 import { isMarkupLayer } from "./markup-pdf";
 import { isMeasureLayer } from "./measure-pdf";
-import { pdfjs, renderPageToCanvas, renderRegion, type OptionalContent, type PDFDocumentProxy } from "./pdf";
+import { pdfjs, renderPageToCanvas, renderRegion, type FormRender, type OptionalContent, type PDFDocumentProxy, type PDFPageProxy } from "./pdf";
 
 /** Sidens geometri ved skala 1 med visningsrotasjon (pdf.js PageViewport). */
 export type PageGeometry = ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
@@ -50,6 +50,8 @@ interface Rendered {
   textReady?: boolean;
   detail?: Detail;
   detailCancel?: () => void;
+  /** Siden har skjemafelt (tegnes uten feltene; de ligger som HTML over). */
+  forms?: boolean;
 }
 
 export class Viewer {
@@ -70,6 +72,8 @@ export class Viewer {
   private rot = 0;
   /** Lagoppsett der våre egne lagrede mål er skjult (de tegnes av målelaget). */
   private layers: OptionalContent | null = null;
+  /** Dokumentet har et skjema (feltene vises som redigerbare felt). */
+  private forms = false;
   private toolMode: Tool = "select";
   private spaceHeld = false;
   private spacePanned = false;
@@ -179,9 +183,10 @@ export class Viewer {
     this.rot = rotation;
     if (!doc) return;
 
-    const [first, layers] = await Promise.all([doc.getPage(1), hideMeasureLayer(doc)]);
+    const [first, layers, forms] = await Promise.all([doc.getPage(1), hideMeasureLayer(doc), formFields(doc)]);
     if (gen !== this.generation) return;
     this.layers = layers;
+    this.forms = forms;
     const vp = first.getViewport({ scale: 1 });
     this.sizes = Array.from({ length: doc.numPages }, () => ({ w: vp.width, h: vp.height }));
 
@@ -234,6 +239,7 @@ export class Viewer {
     this.pagesEl.replaceChildren();
     this.sizes = [];
     this.current = 0;
+    this.forms = false;
   }
 
   private release(i: number): void {
@@ -523,10 +529,14 @@ export class Viewer {
     if (gen !== this.generation || !this.visible.has(i)) return;
 
     const canvas = document.createElement("canvas");
-    const job = await renderPageToCanvas(page, canvas, scale, window.devicePixelRatio || 1, rot, BASE_MAX_PIXELS, this.layers);
+    // Sider med skjemafelt: feltene blir HTML-felt i stedet for å tegnes på lerretet.
+    const widgets = this.forms ? await pageWidgets(page) : [];
+    if (gen !== this.generation || !this.visible.has(i)) return;
+    const forms: FormRender | null = widgets.length ? { canvasMap: new Map() } : null;
+    const job = await renderPageToCanvas(page, canvas, scale, window.devicePixelRatio || 1, rot, BASE_MAX_PIXELS, this.layers, forms);
     const prev = this.rendered.get(i);
     prev?.cancel?.();
-    const entry: Rendered = { scale, rotation: rot, canvas: prev?.canvas ?? canvas, cancel: job.cancel, text: prev?.text, detail: prev?.detail };
+    const entry: Rendered = { scale, rotation: rot, canvas: prev?.canvas ?? canvas, cancel: job.cancel, text: prev?.text, detail: prev?.detail, forms: !!forms };
     this.rendered.set(i, entry);
     try {
       await job.done;
@@ -570,11 +580,58 @@ export class Viewer {
       })
       .catch(() => {});
 
+    if (forms) {
+      this.buildFormLayer(page, widgets, scale, rot, forms)
+        .then((layer) => {
+          if (layer && this.rendered.get(i) === entry && entry.canvas === canvas) pageEl.append(layer);
+        })
+        .catch((e) => console.error(`Skjemafelt på side ${i + 1}`, e));
+    }
+
     buildLinkLayer(page, rot, this.onLink)
       .then((layer) => {
         if (layer && this.rendered.get(i) === entry && entry.canvas === canvas) pageEl.append(layer);
       })
       .catch(() => {});
+  }
+
+  /** Om dokumentet har skjemafelt som kan fylles ut. */
+  get hasForms(): boolean {
+    return !!this.forms;
+  }
+
+  /**
+   * Skjemafeltene på en side som HTML-felt (pdf.js sitt AnnotationLayer).
+   * Verdiene lagres i dokumentets `annotationStorage` og skrives til fila når
+   * dokumentet lagres.
+   */
+  private async buildFormLayer(page: PDFPageProxy, annotations: unknown[], scale: number, rot: number, forms: FormRender): Promise<HTMLDivElement | null> {
+    const doc = this.doc;
+    if (!doc) return null;
+    const div = document.createElement("div");
+    div.className = "annotationLayer formLayer";
+    const layer = new pdfjs.AnnotationLayer({
+      div,
+      page,
+      viewport: page.getViewport({ scale, rotation: (page.rotate + rot) % 360 }),
+      annotationStorage: doc.annotationStorage,
+      linkService: FORM_LINKS,
+      annotationCanvasMap: forms.canvasMap,
+      accessibilityManager: null,
+      annotationEditorUIManager: null,
+      structTreeLayer: null,
+      commentManager: null,
+    } as unknown as ConstructorParameters<typeof pdfjs.AnnotationLayer>[0]);
+    await layer.render({
+      annotations,
+      renderForms: true,
+      imageResourcesPath: "",
+      enableScripting: false,
+      hasJSActions: false,
+      fieldObjects: null,
+      linkService: FORM_LINKS,
+    } as unknown as Parameters<typeof layer.render>[0]);
+    return div;
   }
 
   /** Tegner detaljbilder for sider der grunnbildet ikke er skarpt nok. */
@@ -636,7 +693,8 @@ export class Viewer {
       const canvas = document.createElement("canvas");
       canvas.className = "detail";
       r.detailCancel?.();
-      const job = await renderRegion(page, canvas, scale, rot, { x, y, w, h }, dpr, undefined, this.layers);
+      // Skjemafeltene ligger som HTML-felt over; avkrysningsbokser o.l. tegnes ikke her.
+      const job = await renderRegion(page, canvas, scale, rot, { x, y, w, h }, dpr, undefined, this.layers, r.forms ? { canvasMap: new Map() } : null);
       r.detailCancel = job.cancel;
       try {
         await job.done;
@@ -675,6 +733,40 @@ export class Viewer {
     for (const [i, r] of this.rendered) if (r.textReady && r.text) this.onTextLayer?.(i, r.text);
   }
 }
+
+/** Om dokumentet har et skjema (AcroForm). */
+async function formFields(doc: PDFDocumentProxy): Promise<boolean> {
+  try {
+    const { info } = await doc.getMetadata();
+    return !!(info as { IsAcroFormPresent?: boolean }).IsAcroFormPresent;
+  } catch {
+    return false;
+  }
+}
+
+/** Skjemafeltene (widgets) på en side. */
+async function pageWidgets(page: PDFPageProxy): Promise<unknown[]> {
+  try {
+    return (await page.getAnnotations({ intent: "display" })).filter((a) => a.annotationType === pdfjs.AnnotationType.WIDGET);
+  } catch {
+    return [];
+  }
+}
+
+/** Skjemafelt trenger en «lenketjeneste»; lenker håndteres av linkLayer, så denne gjør ingenting. */
+const FORM_LINKS = {
+  eventBus: null,
+  isInPresentationMode: false,
+  externalLinkEnabled: false,
+  getDestinationHash: () => "#",
+  getAnchorUrl: () => "#",
+  addLinkAttributes: () => {},
+  goToDestination: async () => {},
+  goToPage: () => {},
+  executeNamedAction: () => {},
+  executeSetOCGState: async () => {},
+  getAttachmentContent: async () => null,
+};
 
 /** Skjuler lagene med lagrede mål og markeringer (ArkiPDF tegner dem redigerbart selv). */
 async function hideMeasureLayer(doc: PDFDocumentProxy): Promise<OptionalContent | null> {
