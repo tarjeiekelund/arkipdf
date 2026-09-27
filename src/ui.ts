@@ -30,6 +30,10 @@ const paths: Record<string, string> = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   print: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
   shrink: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
+  markup: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  cloud: '<path d="M7 18a4 4 0 0 1-.9-7.9A5.5 5.5 0 0 1 16.8 8 4.5 4.5 0 0 1 17 18z"/>',
+  arrow: '<path d="M5 19 19 5"/><path d="M10 5h9v9"/>',
+  text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
 };
 

@@ -1701,7 +1701,8 @@ input.range {
 
 /* ---------- Måling ---------- */
 
-.measure-bar {
+.measure-bar,
+.markup-bar {
   flex-wrap: wrap;
   row-gap: 6px;
 }
@@ -1780,6 +1781,126 @@ input.range {
 
 .viewer.measuring.m-dragging {
   cursor: grabbing;
+}
+
+/* ---------- Markering ---------- */
+
+.viewer.marking {
+  cursor: crosshair;
+}
+
+.viewer.marking[data-ktool="text"] {
+  cursor: text;
+}
+
+.viewer.marking .textLayer,
+.viewer.marking .linkLayer,
+.viewer.marking .linkLayer a {
+  pointer-events: none;
+  user-select: none;
+}
+
+.viewer.marking .page {
+  user-select: none;
+}
+
+.viewer.marking[data-khover="node"] {
+  cursor: move;
+}
+
+.viewer.marking[data-khover="body"] {
+  cursor: pointer;
+}
+
+.viewer.marking.k-dragging {
+  cursor: grabbing;
+}
+
+.markupLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.markupLayer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.markupLayer text {
+  white-space: pre;
+}
+
+.k-select {
+  fill: none;
+  stroke: #1c7ed6;
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.k-halo {
+  stroke: rgb(28 126 214 / 0.25);
+  fill: none;
+  stroke-linecap: round;
+}
+
+.markup-handles {
+  position: absolute;
+  inset: 0;
+}
+
+.markup-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid #1c7ed6;
+  border-radius: 2px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.markup-editor {
+  position: absolute;
+  z-index: 5;
+  box-sizing: border-box;
+  margin: 0;
+  border: 1.5px dashed currentColor;
+  border-radius: 0;
+  background: #fff;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: auto;
+  transform-origin: 0 0;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+
+.swatches {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--chrome);
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+
+.swatch.active {
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .measureLayer {

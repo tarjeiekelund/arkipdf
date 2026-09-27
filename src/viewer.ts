@@ -5,6 +5,7 @@
 // store tegninger ville et skarpt bilde av hele siden blitt altfor stort, så
 // da tegnes i tillegg et «detaljbilde» av bare det utsnittet som vises.
 import { buildLinkLayer, resolveDest, type LinkAction, type Target } from "./links";
+import { isMarkupLayer } from "./markup-pdf";
 import { isMeasureLayer } from "./measure-pdf";
 import { pdfjs, renderPageToCanvas, renderRegion, type OptionalContent, type PDFDocumentProxy } from "./pdf";
 
@@ -675,13 +676,14 @@ export class Viewer {
   }
 }
 
-/** Skjuler laget med lagrede mål, hvis dokumentet har det. */
+/** Skjuler lagene med lagrede mål og markeringer (ArkiPDF tegner dem redigerbart selv). */
 async function hideMeasureLayer(doc: PDFDocumentProxy): Promise<OptionalContent | null> {
   try {
     const cfg = await doc.getOptionalContentConfig();
     let found = false;
     for (const [id, group] of cfg) {
-      if (isMeasureLayer((group as { name?: string })?.name)) {
+      const name = (group as { name?: string })?.name;
+      if (isMeasureLayer(name) || isMarkupLayer(name)) {
         cfg.setVisibility(id, false);
         found = true;
       }

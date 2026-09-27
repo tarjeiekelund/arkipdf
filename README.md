@@ -21,6 +21,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
+| Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
 
 ### Tegninger
 
@@ -73,6 +74,33 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
   «Mål (ArkiPDF)» som kan slås av og på der. Neste gang fila åpnes i ArkiPDF,
   kan målene redigeres igjen, og målestokkvalgene er husket. ArkiPDF spør før
   ulagrede mål forkastes.
+
+### Markering
+
+Trykk **K** (eller knappen **Merk**) for å markere på tegningen.
+
+| Verktøy | Slik gjør du |
+| --- | --- |
+| **Sky** (S) | Dra opp en revisjonssky rundt det som er endret |
+| **Pil** (P) | Dra fra der pila starter til det den peker på |
+| **Tekst** (T) | Klikk der teksten skal stå, og skriv. Enter er ferdig, Shift+Enter gir ny linje, Esc avbryter |
+
+- Velg farge (rød, blå eller svart) før du tegner. Er en markering valgt,
+  får den fargen du klikker.
+- **Endre:** klikk en markering for å velge den. Dra for å flytte, og dra i
+  punktene for å endre størrelsen på skyen eller retningen på pila.
+  Dobbeltklikk (eller Enter) på en tekst for å endre den. Delete sletter, og
+  Ctrl+Z angrer.
+- Strek, buer og skrift følger arkets størrelse, så markeringene ser like ut
+  på A4 og A1.
+- **Lagre** (knappen i linja, eller Ctrl+S) skriver markeringene inn i PDF-en
+  som vanlige kommentarer: skyen som rektangel med skykant, pila som linje med
+  pilspiss og teksten som tekstboks. De vises og kan endres i Acrobat,
+  Bluebeam, Edge og andre PDF-lesere, og ligger i laget «Merknader (ArkiPDF)».
+  Neste gang fila åpnes i ArkiPDF, kan de redigeres igjen. Mål og markeringer
+  lagres sammen.
+- Kommentarer laget i andre programmer vises i ArkiPDF, men kan ikke endres
+  her.
 
 ### Presentasjon
 
@@ -169,6 +197,8 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── measure.ts   måling: verktøy, målestokk, liste
 │   ├── measure-math.ts beregninger og innebygd målestokk i PDF
 │   ├── measure-pdf.ts lagring av mål som PDF-kommentarer
+│   ├── markup.ts    markering: sky, pil og tekst
+│   ├── markup-pdf.ts lagring av markeringer som PDF-kommentarer
 │   ├── snap.ts      snapping til streker i tegningen
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»

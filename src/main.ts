@@ -2,6 +2,7 @@ import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 import { rearrangePages, type PageItem } from "./edit";
 import { openExportDialog } from "./exportpng";
+import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
 import { Organizer } from "./organize";
@@ -45,10 +46,12 @@ interface OpenDoc {
   view: { page: number; zoom: ZoomMode; rotation: number };
   /** Målene i dokumentet (settes første gang fanen vises). */
   measure: MeasureDoc | null;
+  /** Markeringene i dokumentet (settes første gang fanen vises). */
+  markup: MarkupDoc | null;
   /** Sidene er flyttet eller slettet siden fila ble lagret; endringen finnes bare i minnet. */
   modified: boolean;
   /** Tidligere versjoner av dokumentet, for å angre sideendringer (Ctrl+Z). */
-  pageHistory: Array<{ bytes: Uint8Array; measure: MeasureDoc | null; modified: boolean }>;
+  pageHistory: Array<{ bytes: Uint8Array; measure: MeasureDoc | null; markup: MarkupDoc | null; modified: boolean }>;
 }
 
 /** Fanene, i rekkefølge; `current` er den som vises. */
@@ -79,6 +82,7 @@ const store = {
 const viewer = new Viewer();
 const search = new Search(viewer);
 const measure = new Measure(viewer);
+const markup = new Markup(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -111,26 +115,51 @@ const viewControls = h(
   h("span", { class: "sep" }),
 );
 
-const measureBtn = docBtn(button("Mål", "ruler", () => measure.toggle(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
+const measureBtn = docBtn(button("Mål", "ruler", () => toggleMeasure(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
+const markupBtn = docBtn(button("Merk", "markup", () => toggleMarkup(), { title: "Marker med sky, pil og tekst (K)", className: "keep-label" }));
 measure.onChange = () => refresh();
-measure.bytesSource = () => current!.bytes;
-// Lagre mål: skriv fila og åpne den på nytt på samme side, med måling fortsatt på.
-measure.onSave = async (bytes) => {
-  if (!current) return false;
-  let { path } = current;
-  if (current.unsaved) {
-    const target = await pickSavePath(path, "Lagre sammenslått PDF");
-    if (!target) return false;
+markup.onChange = () => refresh();
+measure.onSave = () => saveAnnotations();
+markup.onSave = () => saveAnnotations();
+
+/** Måling og markering er hver sin modus; bare én er på om gangen. */
+function toggleMeasure(): void {
+  markup.close();
+  measure.toggle();
+}
+
+function toggleMarkup(): void {
+  measure.close();
+  markup.toggle();
+}
+
+/**
+ * Lagrer mål og markeringer i fila, sammen med sideendringer som bare finnes
+ * i minnet, og åpner den på nytt på samme side (med verktøyet fortsatt på).
+ */
+async function saveAnnotations(saveAs = false): Promise<boolean> {
+  const tab = current;
+  if (!tab) return false;
+  let path = tab.path;
+  if (tab.unsaved || saveAs) {
+    const target = await pickSavePath(saveAs ? tab.path.replace(/\.pdf$/i, " (endret).pdf") : path, tab.unsaved ? "Lagre sammenslått PDF" : "Lagre som");
+    if (!target || current !== tab) return false;
     path = target;
   }
   const page = viewer.current;
   const wasMeasuring = measure.active;
-  const b = busy("Lagrer målene…");
+  const wasMarking = markup.active;
+  const what = measure.dirty && markup.dirty ? "Målene og markeringene" : measure.dirty ? "Målene" : "Markeringene";
+  const b = busy(`Lagrer ${what.toLowerCase()}…`);
   try {
+    let bytes = tab.bytes;
+    if (measure.dirty) bytes = await measure.writeTo(bytes);
+    if (markup.dirty) bytes = await markup.writeTo(bytes);
     await writeFile(path, bytes);
     await openPath(path, { page, bytes, replace: true });
     if (wasMeasuring) measure.open();
-    toast("Målene er lagret i fila", "success");
+    if (wasMarking) markup.open();
+    toast(`${what} er lagret i fila`, "success");
     return true;
   } catch (e) {
     toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
@@ -138,7 +167,7 @@ measure.onSave = async (bytes) => {
   } finally {
     b.done();
   }
-};
+}
 
 // Stripe over et dokument med endringer som bare finnes i minnet: et
 // sammenslått dokument som ikke er lagret ennå, eller flyttede/slettede sider.
@@ -176,6 +205,7 @@ const toolbar = h(
   docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
   docBtn(button("Reduser", "shrink", () => startShrink(), { title: "Reduser filstørrelse: skaler ned bilder og fjern duplikater" })),
   measureBtn,
+  markupBtn,
   h("span", { class: "spacer" }),
   viewControls,
   h("span", { class: "split" }, presentBtn, screenBtn),
@@ -200,6 +230,7 @@ function emptyState(): HTMLElement {
     ["Ctrl+L", "Presenter i fullskjerm"],
     ["Ctrl+F", "Søk i teksten"],
     ["M", "Mål avstand og areal"],
+    ["K", "Marker med sky, pil og tekst"],
     ["Ctrl+P", "Skriv ut"],
     ["Ctrl+M", "Slå sammen PDF-er"],
     ["Ctrl+K", "Sorter sider"],
@@ -332,6 +363,7 @@ function refresh(): void {
   selectBtn.classList.toggle("active", viewer.tool === "select");
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
+  markupBtn.classList.toggle("active", markup.active);
   updateDocBar();
   renderTabs();
   if (hasDoc) {
@@ -610,7 +642,8 @@ function unsavedReasons(t: OpenDoc): string[] {
   const r: string[] = [];
   if (t.unsaved) r.push("sammenslått dokument som ikke er lagret");
   else if (t.modified) r.push("sidene er endret");
-  if (t.measure?.dirty) r.push("mål som ikke er lagret i fila");
+  const pending = [t.measure?.dirty && "mål", t.markup?.dirty && "markeringer"].filter(Boolean).join(" og ");
+  if (pending) r.push(`${pending} som ikke er lagret i fila`);
   return r;
 }
 
@@ -675,7 +708,7 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
     // En ny versjon av samme dokument beholder zoom og rotasjon; en ny fil får standard zoom.
     const z = store.get("zoom");
     const view = old ? { page, zoom: viewer.zoomMode, rotation: viewer.rotation } : { page, zoom: (z === "width" || z === "page" ? z : "auto") as ZoomMode, rotation: 0 };
-    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, modified: false, pageHistory: [] };
+    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, markup: null, modified: false, pageHistory: [] };
     if (old && tabs.includes(old)) {
       tabs[tabs.indexOf(old)] = tab;
       old.thumbs.dispose();
@@ -717,7 +750,8 @@ function activate(tab: OpenDoc): void {
 async function closeTab(tab: OpenDoc): Promise<void> {
   if (organizer) return;
   if ((tab.unsaved || tab.modified) && !(await confirmDialog(`«${tab.name}» ${tab.unsaved ? "er ikke lagret" : "har endringer som ikke er lagret"}. Lukke uten å lagre?\n\n(Velg «Nei» og trykk Ctrl+S for å lagre.)`))) return;
-  if (!tab.unsaved && !tab.modified && tab.measure?.dirty && !(await confirmDialog(`«${tab.name}» har mål som ikke er lagret i fila. Lukke likevel?\n\n(Velg «Nei» og trykk Ctrl+S i måleverktøyet for å lagre.)`))) return;
+  const pending = [tab.measure?.dirty && "mål", tab.markup?.dirty && "markeringer"].filter(Boolean).join(" og ");
+  if (!tab.unsaved && !tab.modified && pending && !(await confirmDialog(`«${tab.name}» har ${pending} som ikke er lagret i fila. Lukke likevel?\n\n(Velg «Nei» og trykk Ctrl+S for å lagre.)`))) return;
   const i = tabs.indexOf(tab);
   if (i < 0) return;
   tabs.splice(i, 1);
@@ -726,6 +760,8 @@ async function closeTab(tab: OpenDoc): Promise<void> {
     if (!current) {
       measure.close();
       measure.setDocument(null, null);
+      markup.close();
+      markup.setDocument(null);
       search.setDocument(null);
       void viewer.setDocument(null);
     }
@@ -789,7 +825,7 @@ function showCurrent(): void {
     refresh();
     return;
   }
-  content.replaceChildren(unsavedBar, measure.bar, viewer.el, search.el, measure.panel);
+  content.replaceChildren(unsavedBar, measure.bar, markup.bar, viewer.el, search.el, measure.panel);
   if (viewer.document !== current.doc) {
     const tab = current;
     search.setDocument(tab.doc);
@@ -799,6 +835,12 @@ function showCurrent(): void {
       measure.close();
       measure.setDocument(tab.bytes, tab.doc);
       tab.measure = measure.state;
+    }
+    if (tab.markup) markup.useDocument(tab.markup);
+    else {
+      markup.close();
+      markup.setDocument(tab.bytes);
+      tab.markup = markup.state;
     }
     viewer.setZoom(tab.view.zoom, null);
     void viewer.setDocument(tab.doc, tab.view.page, tab.view.rotation).then(() => viewer.el.focus());
@@ -893,6 +935,7 @@ function startOrganize(): void {
   }, true);
   if (search.isOpen) search.close();
   measure.close();
+  markup.close();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -930,9 +973,10 @@ async function changePages(items: PageItem[], focus: number, select: number[] = 
  */
 async function replaceContent(tab: OpenDoc, bytes: Uint8Array, order: number[], focus: number): Promise<void> {
   const doc = await loadPdf(bytes);
-  tab.pageHistory.push({ bytes: tab.bytes, measure: tab.measure ? copyMeasureDoc(tab.measure) : null, modified: tab.modified });
+  tab.pageHistory.push({ bytes: tab.bytes, measure: tab.measure ? copyMeasureDoc(tab.measure) : null, markup: tab.markup ? copyMarkupDoc(tab.markup) : null, modified: tab.modified });
   if (tab.pageHistory.length > 30) tab.pageHistory.shift();
   if (tab.measure) reorderMeasureDoc(tab.measure, order, doc);
+  if (tab.markup) reorderMarkupDoc(tab.markup, order);
   const old = swapDoc(tab, bytes, doc, focus);
   tab.modified = !tab.unsaved;
   void updateTitle();
@@ -961,6 +1005,7 @@ async function undoPages(): Promise<void> {
     const doc = await loadPdf(prev.bytes);
     if (prev.measure) prev.measure.doc = doc;
     tab.measure = prev.measure;
+    tab.markup = prev.markup;
     const old = swapDoc(tab, prev.bytes, doc, viewer.current);
     tab.modified = prev.modified;
     thumbSel.clear();
@@ -1003,8 +1048,8 @@ function deleteSelectedPages(): void {
 async function saveDoc(saveAs = false): Promise<void> {
   const tab = current;
   if (!tab) return;
-  // Lagring av mål skriver hele dokumentet, med sideendringene, og åpner det på nytt.
-  if (measure.dirty && !saveAs) return void (await measure.save());
+  // Mål og markeringer skrives inn i hele dokumentet, med sideendringene, som så åpnes på nytt.
+  if (measure.dirty || markup.dirty) return void (await saveAnnotations(saveAs));
   if (tab.unsaved) return saveUnsaved();
   if (!tab.modified && !saveAs) return;
   let target = tab.path;
@@ -1120,6 +1165,11 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+  // Markering likeså (S/P/T, Esc, Delete, Ctrl+Z).
+  if (markup.active && current && !typing(e.target) && markup.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   let handled = true;
@@ -1153,7 +1203,8 @@ window.addEventListener("keydown", (e) => {
   // Piltaster blar side, men ruller sidelengs når tegningen er bredere enn vinduet.
   else if (e.key === "ArrowRight" && !scrollsSideways()) viewer.goToPage(viewer.current + 1);
   else if (e.key === "ArrowLeft" && !scrollsSideways()) viewer.goToPage(viewer.current - 1);
-  else if (k === "m") measure.toggle();
+  else if (k === "m") toggleMeasure();
+  else if (k === "k") toggleMarkup();
   else if (k === "h") setTool("hand");
   else if (k === "v") setTool("select");
   else if (e.key === "r") viewer.rotate(90);
