@@ -1,3 +1,4 @@
+import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 import { rearrangePages, type PageItem } from "./edit";
 import { openExportDialog } from "./exportpng";

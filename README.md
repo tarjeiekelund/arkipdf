@@ -132,6 +132,8 @@ lagt ut som en GitHub-release.
 - [pdf-lib](https://pdf-lib.js.org) står for sammenslåing og
   omorganisering. Ved sortering bygges sidetreet om i den eksisterende fila,
   så bokmerker, skjemafelt og metadata blir med.
+- Skrifta er [Hanken Grotesk](https://fonts.google.com/specimen/Hanken+Grotesk)
+  (SIL Open Font License), som følger med appen og virker uten nett.
 - Lagring skjer til en midlertidig fil som deretter bytter plass med
   originalen, så fila aldri blir stående halvskrevet.
 

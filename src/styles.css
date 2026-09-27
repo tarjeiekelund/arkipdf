@@ -59,7 +59,8 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Hanken Grotesk følger med appen (@fontsource-variable), så den virker uten nett. */
+  font: 14px/1.45 "Hanken Grotesk Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   /* Tall med fast bredde: sidenummer, zoom og mål hopper ikke når de endres. */
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
