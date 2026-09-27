@@ -2,7 +2,7 @@ import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
 import { rearrangePages, type PageItem } from "./edit";
 import { openExportDialog } from "./exportpng";
-import { Measure } from "./measure";
+import { Measure, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
 import { Organizer } from "./organize";
 import { loadPdf, pdfjs, ThumbCache, type PDFDocumentProxy } from "./pdf";
@@ -14,6 +14,7 @@ import {
   listScreens,
   onCloseRequested,
   onFilesDropped,
+  onLaunchFiles,
   openFile,
   openUrl,
   pickPdfs,
@@ -28,16 +29,24 @@ import { Search } from "./search";
 import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
 
+/** Et åpent dokument, med egen fane. */
 interface OpenDoc {
   path: string;
   name: string;
   bytes: Uint8Array;
   doc: PDFDocumentProxy;
+  /** Miniatyrene; tømmes når fanen ikke vises, og lages igjen ved behov. */
   thumbs: ThumbCache;
   /** Finnes ikke som fil ennå (resultat av «Slå sammen»); `path` er forslaget til filnavn. */
   unsaved: boolean;
+  /** Siden, zoomen og rotasjonen fanen hadde sist den ble vist. */
+  view: { page: number; zoom: ZoomMode; rotation: number };
+  /** Målene i dokumentet (settes første gang fanen vises). */
+  measure: MeasureDoc | null;
 }
 
+/** Fanene, i rekkefølge; `current` er den som vises. */
+const tabs: OpenDoc[] = [];
 let current: OpenDoc | null = null;
 let organizer: Organizer | null = null;
 let presentation: Presentation | null = null;
@@ -112,7 +121,7 @@ measure.onSave = async (bytes) => {
   const b = busy("Lagrer målene…");
   try {
     await writeFile(path, bytes);
-    await openPath(path, { page, bytes, discard: true });
+    await openPath(path, { page, bytes, replace: true });
     measure.open();
     toast("Målene er lagret i fila", "success");
     return true;
@@ -163,7 +172,8 @@ tabPages.addEventListener("click", () => setSidebarTab("pages"));
 tabOutline.addEventListener("click", () => setSidebarTab("outline"));
 const content = h("section", { class: "content" });
 const dropOverlay = h("div", { class: "drop-overlay" }, h("div", {}, "Slipp PDF-en her"));
-app.append(toolbar, h("main", {}, sidebar, content), dropOverlay);
+const tabBar = h("div", { class: "tabbar", role: "tablist", "aria-label": "Åpne dokumenter" });
+app.append(tabBar, toolbar, h("main", {}, sidebar, content), dropOverlay);
 
 function emptyState(): HTMLElement {
   const shortcuts: Array<[string, string]> = [
@@ -304,6 +314,7 @@ function refresh(): void {
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
   unsavedBar.hidden = !current?.unsaved;
+  renderTabs();
   if (hasDoc) {
     if (document.activeElement !== pageInput) pageInput.value = String(viewer.current + 1);
     pageTotal.textContent = `av ${viewer.pageCount}`;
@@ -472,22 +483,26 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
   }
 }
 
-async function confirmDiscard(): Promise<boolean> {
-  if (current?.unsaved) {
-    return confirmDialog(`«${current.name}» er ikke lagret. Forkaste det sammenslåtte dokumentet?\n\n(Velg «Nei» og trykk Ctrl+S for å lagre.)`);
-  }
-  if (organizer?.dirty) return confirmDialog("Du har endringer i siderekkefølgen som ikke er lagret. Forkaste dem?");
-  if (measure.dirty) {
-    const ok = await confirmDialog("Du har mål som ikke er lagret i fila. Forkaste dem?\n\n(Velg «Nei» og trykk Ctrl+S i måleverktøyet for å lagre.)");
-    if (ok) measure.dirty = false;
-    return ok;
-  }
-  return true;
+/** Har fanen noe som ikke er lagret (sammenslått dokument eller mål)? */
+function hasUnsaved(t: OpenDoc): boolean {
+  return t.unsaved || !!t.measure?.dirty;
+}
+
+/** Før vinduet lukkes: spør hvis noen faner har noe som ikke er lagret. */
+async function confirmQuit(): Promise<boolean> {
+  const names = tabs.filter(hasUnsaved).map((t) => `• ${t.name}`);
+  if (organizer?.dirty && current && !hasUnsaved(current)) names.push(`• ${current.name} (siderekkefølge)`);
+  if (!names.length) return true;
+  return confirmDialog(`Dette er ikke lagret:\n\n${names.join("\n")}\n\nLukke ArkiPDF likevel?`);
 }
 
 async function openDialog(): Promise<void> {
-  const [path] = await pickPdfs(false);
-  if (path) await openPath(path);
+  await openPaths(await pickPdfs(true));
+}
+
+/** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). */
+async function openPaths(paths: string[]): Promise<void> {
+  for (const p of paths) await openPath(p);
 }
 
 interface OpenOptions {
@@ -497,13 +512,23 @@ interface OpenOptions {
   bytes?: Uint8Array;
   /** Dokumentet finnes ikke som fil ennå; `path` er forslaget til filnavn. */
   unsaved?: boolean;
-  /** Erstatter gjeldende dokument med en ny versjon av det; ikke spør om å forkaste. */
-  discard?: boolean;
+  /** Erstatter dokumentet i fanen som vises med en ny versjon av det (etter lagring). */
+  replace?: boolean;
 }
 
+const samePath = (a: string, b: string) => (isTauri ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+/** Åpner en PDF i en ny fane, eller går til fanen hvis fila allerede er åpen. */
 async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
-  const { page: startPage, bytes: preloaded, unsaved = false } = opts;
-  if (!opts.discard && !(await confirmDiscard())) return;
+  const { page: startPage, bytes: preloaded, unsaved = false, replace = false } = opts;
+  if (!replace && !unsaved) {
+    const open = tabs.find((t) => !t.unsaved && samePath(t.path, path));
+    if (open) {
+      activate(open);
+      if (startPage !== undefined) viewer.goToPage(startPage);
+      return;
+    }
+  }
   closeOrganizer();
   const loading = h("div", { class: "loading" }, h("div", { class: "spinner" }), `Åpner ${baseName(path)}…`);
   content.replaceChildren(loading);
@@ -514,17 +539,25 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
       showCurrent();
       return;
     }
-    const old = current;
-    current = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved };
     const remembered = unsaved ? 0 : (recentFiles().find((r) => r.path === path)?.page ?? 0);
     const page = Math.min(startPage ?? remembered, doc.numPages - 1);
-    if (!unsaved) rememberFile(path, file.name, page);
-    if (old) {
+    const old = replace ? current : null;
+    // En ny versjon av samme dokument beholder zoom og rotasjon; en ny fil får standard zoom.
+    const z = store.get("zoom");
+    const view = old ? { page, zoom: viewer.zoomMode, rotation: viewer.rotation } : { page, zoom: (z === "width" || z === "page" ? z : "auto") as ZoomMode, rotation: 0 };
+    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null };
+    if (old && tabs.includes(old)) {
+      tabs[tabs.indexOf(old)] = tab;
       old.thumbs.dispose();
       void old.doc.loadingTask.destroy();
+    } else {
+      tabs.push(tab);
+      leaveCurrent();
     }
+    current = tab;
+    if (!unsaved) rememberFile(path, file.name, page);
     await updateTitle();
-    showCurrent(page);
+    showCurrent();
   } catch (e) {
     toast(`Kunne ikke åpne ${baseName(path)}: ${errorMessage(e)}`, "error");
     if (!preloaded) forgetFile(path);
@@ -532,13 +565,92 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
   }
 }
 
+/** Husker hvor man var i fanen som vises, og frigjør miniatyrene før en annen fane vises. */
+function leaveCurrent(): void {
+  if (!current) return;
+  if (viewer.document === current.doc) current.view = { page: viewer.current, zoom: viewer.zoomMode, rotation: viewer.rotation };
+  current.thumbs.dispose();
+  void current.doc.cleanup();
+}
+
+/** Viser en annen fane. */
+function activate(tab: OpenDoc): void {
+  if (tab === current || organizer || presentation?.active) return;
+  leaveCurrent();
+  current = tab;
+  void updateTitle();
+  showCurrent();
+}
+
+/** Lukker en fane (spør først hvis noe ikke er lagret). */
+async function closeTab(tab: OpenDoc): Promise<void> {
+  if (organizer) return;
+  if (tab.unsaved && !(await confirmDialog(`«${tab.name}» er ikke lagret. Lukke uten å lagre?\n\n(Velg «Nei» og trykk Ctrl+S for å lagre.)`))) return;
+  if (!tab.unsaved && tab.measure?.dirty && !(await confirmDialog(`«${tab.name}» har mål som ikke er lagret i fila. Lukke likevel?\n\n(Velg «Nei» og trykk Ctrl+S i måleverktøyet for å lagre.)`))) return;
+  const i = tabs.indexOf(tab);
+  if (i < 0) return;
+  tabs.splice(i, 1);
+  if (tab === current) {
+    current = tabs[Math.min(i, tabs.length - 1)] ?? null;
+    if (!current) {
+      measure.close();
+      measure.setDocument(null, null);
+      search.setDocument(null);
+      void viewer.setDocument(null);
+    }
+    void updateTitle();
+    showCurrent();
+  } else refresh();
+  tab.thumbs.dispose();
+  void tab.doc.loadingTask.destroy();
+}
+
+/** Neste (1) eller forrige (-1) fane, med omløp. */
+function cycleTab(dir: number): void {
+  if (!current || tabs.length < 2) return;
+  activate(tabs[(tabs.indexOf(current) + dir + tabs.length) % tabs.length]);
+}
+
+let tabsKey = "";
+/** Tegner fanelinja på nytt når noe i den er endret. */
+function renderTabs(): void {
+  const key = [organizer ? 1 : 0, current ? tabs.indexOf(current) : -1, ...tabs.map((t) => `${t.name}|${hasUnsaved(t) ? 1 : 0}`)].join("/");
+  if (key === tabsKey) return;
+  tabsKey = key;
+  tabBar.hidden = tabs.length === 0;
+  tabBar.classList.toggle("locked", !!organizer);
+  tabBar.replaceChildren(
+    ...tabs.map((t) => {
+      const close = h("span", { class: "tab-close", role: "button", "aria-label": `Lukk ${t.name}`, title: "Lukk (Ctrl+W)", html: icon("close") });
+      const el = h(
+        "div",
+        { class: `doc-tab${t === current ? " active" : ""}${hasUnsaved(t) ? " dirty" : ""}`, role: "tab", "aria-selected": String(t === current), title: t.unsaved ? `${t.name} (ikke lagret)` : t.path },
+        h("span", { class: "doc-tab-name" }, t.name),
+        h("span", { class: "doc-tab-dot", title: "Ikke lagret" }),
+        close,
+      );
+      el.addEventListener("mousedown", (e) => {
+        if (e.button === 0 && !(e.target as HTMLElement).closest(".tab-close")) activate(t);
+        if (e.button === 1) e.preventDefault();
+      });
+      el.addEventListener("auxclick", (e) => {
+        if (e.button === 1) void closeTab(t);
+      });
+      close.addEventListener("click", () => void closeTab(t));
+      return el;
+    }),
+    button("", "plus", () => void openDialog(), { title: "Åpne PDF i ny fane (Ctrl+O)", className: "ghost tab-new" }),
+  );
+  tabBar.querySelector(".doc-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
 function updateTitle(): Promise<void> {
   if (!current) return setTitle("ArkiPDF");
   return setTitle(`${current.name}${current.unsaved ? " (ikke lagret)" : ""} – ArkiPDF`);
 }
 
-/** Viser gjeldende dokument (eller startsiden) i innholdsfeltet. */
-function showCurrent(startPage = 0): void {
+/** Viser fanen som er valgt (eller startsiden) i innholdsfeltet. */
+function showCurrent(): void {
   if (!current) {
     content.replaceChildren(emptyState());
     refresh();
@@ -546,14 +658,19 @@ function showCurrent(startPage = 0): void {
   }
   content.replaceChildren(unsavedBar, measure.bar, viewer.el, search.el, measure.panel);
   if (viewer.document !== current.doc) {
-    search.setDocument(current.doc);
-    measure.close();
-    measure.setDocument(current.bytes, current.doc);
-    const z = store.get("zoom");
-    viewer.setZoom(z === "width" || z === "page" ? z : "auto", null);
-    void viewer.setDocument(current.doc, startPage).then(() => viewer.el.focus());
+    const tab = current;
+    search.setDocument(tab.doc);
+    // Mål følger fanen: første gang leses de fra fila, siden brukes de som de var.
+    if (tab.measure) measure.useDocument(tab.measure);
+    else {
+      measure.close();
+      measure.setDocument(tab.bytes, tab.doc);
+      tab.measure = measure.state;
+    }
+    viewer.setZoom(tab.view.zoom, null);
+    void viewer.setDocument(tab.doc, tab.view.page, tab.view.rotation).then(() => viewer.el.focus());
     buildSidebar();
-    void buildOutline(current.doc);
+    void buildOutline(tab.doc);
   }
   refresh();
 }
@@ -637,7 +754,7 @@ function startOrganize(): void {
         toast(`Lagret ${baseName(target)}`, "success");
       }
       organizer = null;
-      await openPath(target ?? doc.path, { page: 0, bytes: out, unsaved: !target, discard: true });
+      await openPath(target ?? doc.path, { page: 0, bytes: out, unsaved: !target, replace: true });
     } catch (e) {
       toast(`Kunne ikke lagre: ${errorMessage(e)}`, "error");
     } finally {
@@ -703,13 +820,7 @@ async function saveUnsaved(): Promise<void> {
 }
 
 async function discardUnsaved(): Promise<void> {
-  if (!current?.unsaved || !(await confirmDiscard())) return;
-  const old = current;
-  current = null;
-  old.thumbs.dispose();
-  void old.doc.loadingTask.destroy();
-  await updateTitle();
-  showCurrent();
+  if (current?.unsaved) await closeTab(current);
 }
 
 function startPrint(): void {
@@ -749,6 +860,8 @@ window.addEventListener("keydown", (e) => {
   // Ctrl+P fanges alltid, ellers ville nettleserdelen skrevet ut selve programvinduet.
   else if (ctrl && k === "p") startPrint();
   else if (!current) handled = false;
+  else if (ctrl && k === "w") void closeTab(current);
+  else if (ctrl && (e.key === "Tab" || e.key === "PageDown" || e.key === "PageUp")) cycleTab(e.key === "PageUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1);
   else if (ctrl && k === "s" && current.unsaved) void saveUnsaved();
   else if (ctrl && k === "f") search.open();
   else if (e.key === "F3") search.step(e.shiftKey ? -1 : 1);
@@ -798,8 +911,9 @@ if (isTauri) {
 
 onFilesDropped(
   (paths) => {
-    if (paths.length === 1 && !document.querySelector(".backdrop")) void openPath(paths[0]);
-    else openMergeDialog(paths, showMerged);
+    // Filene åpnes i hver sin fane (mens en dialog er åpen: i sammenslåingen, som før).
+    if (document.querySelector(".backdrop")) openMergeDialog(paths, showMerged);
+    else void openPaths(paths);
   },
   (on) => dropOverlay.classList.toggle("show", on),
 );
@@ -807,11 +921,15 @@ onFilesDropped(
 // ---------- Oppstart ----------
 
 // Spør før vinduet lukkes med noe som ikke er lagret.
-onCloseRequested(confirmDiscard);
+onCloseRequested(confirmQuit);
+
+/** Filer fra Utforsker (dobbeltklikk, «Åpne med», «Send til»): åpnes i faner, eller i sammenslåingen. */
+function openLaunched({ files, merge }: { files: string[]; merge: boolean }): void {
+  if (merge && files.length) openMergeDialog(files, showMerged);
+  else void openPaths(files);
+}
 
 showCurrent();
-// Flere filer (eller «Send til → ArkiPDF – slå sammen PDF-er» i Utforsker) åpner sammenslåingen.
-void startupFiles().then(({ files, merge }) => {
-  if (files.length === 1 && !merge) void openPath(files[0]);
-  else if (files.length) openMergeDialog(files, showMerged);
-});
+void startupFiles().then(openLaunched);
+// ArkiPDF kjører i ett vindu: filer som åpnes mens det er åpent, kommer hit.
+onLaunchFiles(openLaunched);

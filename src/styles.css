@@ -169,6 +169,113 @@ select:focus-visible,
   font-size: 15px;
 }
 
+/* ---------- Faner ---------- */
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 8px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+
+.tabbar.locked {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.doc-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 90px;
+  max-width: 240px;
+  height: 32px;
+  margin-bottom: -1px;
+  padding: 0 6px 0 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: default;
+  user-select: none;
+}
+
+.doc-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.doc-tab.active {
+  background: var(--chrome);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.doc-tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+
+.tab-close .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Ulagret: en prikk der lukkeknappen er, til man holder musa over fanen. */
+.doc-tab-dot {
+  display: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px;
+  border-radius: 50%;
+  background: var(--text);
+  flex: none;
+}
+
+.doc-tab.dirty:not(:hover) .doc-tab-dot {
+  display: block;
+}
+
+.doc-tab.dirty:not(:hover) .tab-close {
+  display: none;
+}
+
+.tab-new {
+  height: 28px;
+  margin: 0 0 2px 2px;
+  padding: 0 6px;
+  flex: none;
+}
+
 /* ---------- Verktøylinje ---------- */
 
 .toolbar,

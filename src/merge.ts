@@ -75,7 +75,7 @@ export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array,
   const body = h(
     "div",
     { class: "merge" },
-    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Du ser resultatet før du lagrer. Du kan også dra PDF-filer inn i vinduet."),
+    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Du ser resultatet før du lagrer."),
     list,
     empty,
     button("Legg til filer…", "plus", () => void add()),

@@ -170,11 +170,12 @@ export class Viewer {
     this.onChange();
   }
 
-  async setDocument(doc: PDFDocumentProxy | null, startPage = 0): Promise<void> {
+  /** `rotation`: visningens rotasjon (f.eks. det en fane hadde sist den ble vist). */
+  async setDocument(doc: PDFDocumentProxy | null, startPage = 0, rotation = 0): Promise<void> {
     const gen = ++this.generation;
     this.clear();
     this.doc = doc;
-    this.rot = 0;
+    this.rot = rotation;
     if (!doc) return;
 
     const [first, layers] = await Promise.all([doc.getPage(1), hideMeasureLayer(doc)]);

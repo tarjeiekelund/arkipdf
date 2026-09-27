@@ -46,6 +46,37 @@ interface Measurement {
   fixed: Scale | null;
 }
 
+/** Alt som hører til ett dokument: mål, målestokk, angrehistorikk og snapdata. */
+export interface MeasureDoc {
+  doc: PDFDocumentProxy | null;
+  pdfScales: Map<number, PdfScaleRegion[]>;
+  pageScale: Map<number, Scale>;
+  defaultScale: Scale | null;
+  items: Measurement[];
+  selected: number | null;
+  /** Tidligere tilstander for Ctrl+Z. */
+  history: Measurement[][];
+  /** Endringer som ikke er lagret i fila. */
+  dirty: boolean;
+  snaps: Map<number, SnapIndex | null>;
+  snapLoading: Set<number>;
+}
+
+function newMeasureDoc(doc: PDFDocumentProxy | null): MeasureDoc {
+  return {
+    doc,
+    pdfScales: new Map(),
+    pageScale: new Map(),
+    defaultScale: null,
+    items: [],
+    selected: null,
+    history: [],
+    dirty: false,
+    snaps: new Map(),
+    snapLoading: new Set(),
+  };
+}
+
 interface Layer {
   el: HTMLDivElement;
   svg: SVGSVGElement;
@@ -83,30 +114,26 @@ export class Measure {
   active = false;
   private kind: MeasureKind = "distance";
   private unit: Unit = store.get("measureUnit") === "mm" ? "mm" : "m";
-  private pdfScales = new Map<number, PdfScaleRegion[]>();
-  private pageScale = new Map<number, Scale>();
-  private defaultScale: Scale | null = null;
-  private items: Measurement[] = [];
+  /** Målene og målestokken for dokumentet som vises (se `MeasureDoc`). */
+  private s: MeasureDoc = newMeasureDoc(null);
   private nextId = 1;
-  private selected: number | null = null;
   private drawing: { page: number; points: Pt[] } | null = null;
   private calibrating = false;
   private cursor: { page: number; p: Pt } | null = null;
   private layers = new Map<number, Layer>();
-  private token = 0;
   private toolBefore: "select" | "hand" = "select";
   private down: { x: number; y: number } | null = null;
   /** Et mål som dras: ett punkt (`node`) eller hele målet (`node` er null). */
   private grab: { id: number; page: number; node: number | null; via: "node" | "edge" | "label" | "inside"; x: number; y: number; from: Pt; points: Pt[]; moved: boolean } | null = null;
-  /** Tidligere tilstander for Ctrl+Z. */
-  private history: Measurement[][] = [];
-  private doc: PDFDocumentProxy | null = null;
   private snapOn = store.get("measureSnap") !== "0";
-  private snaps = new Map<number, SnapIndex | null>();
-  private snapLoading = new Set<number>();
   private lastSnap: { page: number; hit: SnapHit } | null = null;
-  /** Endringer som ikke er lagret i fila. */
-  dirty = false;
+  /** Endringer som ikke er lagret i fila (for dokumentet som vises). */
+  get dirty(): boolean {
+    return this.s.dirty;
+  }
+  set dirty(v: boolean) {
+    this.s.dirty = v;
+  }
   /** Kalles med nye filbytes når målene skal lagres. */
   onSave: ((bytes: Uint8Array) => Promise<boolean | void>) | null = null;
   private saveBtn: HTMLButtonElement;
@@ -190,36 +217,22 @@ export class Measure {
   // ---------- Dokument og modus ----------
 
   /**
-   * Nytt dokument: nullstill, og les i bakgrunnen innebygd målestokk og
-   * mål som er lagret i fila tidligere.
+   * Nytt dokument: ny, tom tilstand, og les i bakgrunnen innebygd målestokk
+   * og mål som er lagret i fila tidligere. Tilstanden hentes med `state` og
+   * kan tas i bruk igjen med `useDocument` (faner).
    */
   setDocument(bytes: Uint8Array | null, doc: PDFDocumentProxy | null): void {
-    const token = ++this.token;
-    this.doc = doc;
-    this.items = [];
-    this.history = [];
-    this.grab = null;
-    this.selected = null;
-    this.drawing = null;
-    this.calibrating = false;
-    this.dirty = false;
-    this.pdfScales = new Map();
-    this.pageScale.clear();
-    this.defaultScale = null;
-    this.layers.clear();
-    this.snaps.clear();
-    this.snapLoading.clear();
-    this.lastSnap = null;
-    this.refreshPanel();
-    this.refreshScaleUi();
+    const st = newMeasureDoc(doc);
+    this.useDocument(st);
     if (!bytes) return;
     readMeasureData(bytes)
       .then((data) => {
-        if (token !== this.token) return;
-        this.pdfScales = data.scales;
-        for (const [page, sc] of data.pageScales) this.pageScale.set(page, sc);
-        this.defaultScale = data.defaultScale;
-        this.items = data.measurements.map((m) => ({ ...m, id: this.nextId++ }));
+        // Resultatet hører til dette dokumentet, også om en annen fane vises nå.
+        st.pdfScales = data.scales;
+        for (const [page, sc] of data.pageScales) st.pageScale.set(page, sc);
+        st.defaultScale = data.defaultScale;
+        st.items = data.measurements.map((m) => ({ ...m, id: this.nextId++ }));
+        if (this.s !== st) return;
         this.refreshScaleUi();
         this.redrawAll();
         this.onChange();
@@ -229,18 +242,39 @@ export class Measure {
       });
   }
 
+  /** Målene og målestokken for dokumentet som vises. */
+  get state(): MeasureDoc {
+    return this.s;
+  }
+
+  /** Bytter til et dokument som har vært vist før (f.eks. en annen fane), med målene det hadde. */
+  useDocument(st: MeasureDoc): void {
+    if (this.drawing || this.calibrating) this.cancelDrawing();
+    this.s = st;
+    this.grab = null;
+    this.down = null;
+    this.drawing = null;
+    this.calibrating = false;
+    this.cursor = null;
+    this.layers.clear();
+    this.lastSnap = null;
+    this.refreshPanel();
+    this.refreshScaleUi();
+    this.updateHint();
+  }
+
   /** Husker målene slik de er nå, så neste endring kan angres. */
   private remember(): void {
-    this.history.push(this.items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) })));
-    if (this.history.length > 100) this.history.shift();
+    this.s.history.push(this.s.items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) })));
+    if (this.s.history.length > 100) this.s.history.shift();
   }
 
   private undo(): void {
-    const prev = this.history.pop();
+    const prev = this.s.history.pop();
     if (!prev) return;
-    const pages = new Set([...this.items, ...prev].map((m) => m.page));
-    this.items = prev;
-    if (!prev.some((m) => m.id === this.selected)) this.selected = null;
+    const pages = new Set([...this.s.items, ...prev].map((m) => m.page));
+    this.s.items = prev;
+    if (!prev.some((m) => m.id === this.s.selected)) this.s.selected = null;
     for (const p of pages) this.redraw(p);
     this.markDirty();
     this.updateHint();
@@ -257,7 +291,7 @@ export class Measure {
   /** Skriver målene inn i PDF-fila. */
   async save(): Promise<void> {
     if (!this.onSave || !this.bytesSource) return;
-    const items: WritableMeasurement[] = this.items.map((m) => {
+    const items: WritableMeasurement[] = this.s.items.map((m) => {
       const d = this.describe(m);
       const scale = m.fixed ?? this.scaleFor(m.page);
       return {
@@ -272,7 +306,7 @@ export class Measure {
       };
     });
     try {
-      const out = await writeMeasurements(this.bytesSource(), items, this.pageScale, this.defaultScale);
+      const out = await writeMeasurements(this.bytesSource(), items, this.s.pageScale, this.s.defaultScale);
       // `false`: brukeren avbrøt (f.eks. valg av filnavn), målene er fortsatt ulagret.
       if ((await this.onSave(out)) !== false) this.dirty = false;
     } catch (e) {
@@ -295,7 +329,7 @@ export class Measure {
     this.viewer.tool = "select";
     this.viewer.el.classList.add("measuring");
     this.bar.hidden = false;
-    this.panel.hidden = this.items.length === 0 && !this.dirty;
+    this.panel.hidden = this.s.items.length === 0 && !this.dirty;
     this.refreshScaleUi();
     this.updateHint();
     this.onChange();
@@ -327,7 +361,7 @@ export class Measure {
   // ---------- Målestokk ----------
 
   private scaleFor(page: number): Scale | null {
-    return this.pageScale.get(page) ?? this.defaultScale;
+    return this.s.pageScale.get(page) ?? this.s.defaultScale;
   }
 
   private metersPerPoint(m: Measurement): number | null {
@@ -337,7 +371,7 @@ export class Measure {
   private refreshScaleUi(): void {
     const page = this.viewer.current;
     const current = this.scaleFor(page);
-    const opts: HTMLOptionElement[] = [h("option", { value: "none" }, this.pdfScales.get(page)?.length ? "Ikke valgt" : "Ikke valgt (mål på arket)")];
+    const opts: HTMLOptionElement[] = [h("option", { value: "none" }, this.s.pdfScales.get(page)?.length ? "Ikke valgt" : "Ikke valgt (mål på arket)")];
     let selected = "none";
     for (const den of PRESETS) {
       const value = String(den);
@@ -352,7 +386,7 @@ export class Measure {
     this.scaleSelect.replaceChildren(...opts);
     this.scaleSelect.value = selected;
 
-    const regions = this.pdfScales.get(page);
+    const regions = this.s.pdfScales.get(page);
     if (regions?.length) {
       const labels = [...new Set(regions.map((r) => r.label))].join(", ");
       this.scaleInfo.textContent = `Fra PDF: ${labels}`;
@@ -364,9 +398,9 @@ export class Measure {
   private setScale(scale: Scale | null): void {
     const page = this.viewer.current;
     // Valget gjelder denne siden og alle sider uten egen målestokk.
-    if (scale) this.pageScale.set(page, scale);
-    else this.pageScale.delete(page);
-    this.defaultScale = scale;
+    if (scale) this.s.pageScale.set(page, scale);
+    else this.s.pageScale.delete(page);
+    this.s.defaultScale = scale;
     this.refreshScaleUi();
     this.redrawAll();
     this.markDirty();
@@ -462,7 +496,7 @@ export class Measure {
       this.down = { x: e.clientX, y: e.clientY };
       if (this.drawing || this.calibrating) return;
       const t = this.grabTarget(e);
-      const m = t && this.items.find((x) => x.id === t.id);
+      const m = t && this.s.items.find((x) => x.id === t.id);
       const from = m && this.hitPage(e, m.page);
       if (!t || !m || !from) return;
       this.grab = { ...t, page: m.page, x: e.clientX, y: e.clientY, from: from.p, points: m.points.map((p) => [p[0], p[1]] as Pt), moved: false };
@@ -529,7 +563,7 @@ export class Measure {
    * regnes ut fra målets side.)
    */
   private insertNode(e: MouseEvent): void {
-    const m = this.items.find((x) => x.id === this.selected);
+    const m = this.s.items.find((x) => x.id === this.s.selected);
     const hit = m && m.kind !== "distance" ? this.hitPage(e, m.page) : null;
     if (!m || !hit) return;
     const ppp = this.pointsPerPixel(m.page);
@@ -549,13 +583,13 @@ export class Measure {
       g.moved = true;
       this.remember();
       this.viewer.el.classList.add("m-dragging");
-      if (this.selected !== g.id) {
-        this.selected = g.id;
+      if (this.s.selected !== g.id) {
+        this.s.selected = g.id;
         this.redrawAll();
         this.updateHint();
       }
     }
-    const m = this.items.find((x) => x.id === g.id);
+    const m = this.s.items.find((x) => x.id === g.id);
     if (!m) return;
     if (g.node !== null) {
       // Punktet festes til tegningen som når man måler.
@@ -583,7 +617,7 @@ export class Measure {
     const hit = this.hitPage(e);
     if (!hit) return null;
     const ppp = this.pointsPerPixel(hit.page);
-    const sel = this.items.find((m) => m.id === this.selected && m.page === hit.page);
+    const sel = this.s.items.find((m) => m.id === this.s.selected && m.page === hit.page);
     if (sel) {
       let node = -1;
       let best = ppp * 8;
@@ -599,8 +633,8 @@ export class Measure {
       if (sel.kind !== "distance" && pathDistance(hit.p, sel.points, sel.kind === "area") <= ppp * 6) return { id: sel.id, node: null, via: "edge" };
     }
     if (this.snapOn && !e.altKey && !e.shiftKey && this.snapIndex(hit.page)?.query(hit.p, ppp * 10)) return null;
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const m = this.items[i];
+    for (let i = this.s.items.length - 1; i >= 0; i--) {
+      const m = this.s.items[i];
       if (m.page !== hit.page || m.kind !== "area") continue;
       if (insidePolygon(hit.p, m.points) && pathDistance(hit.p, m.points, true) > ppp * 8) return { id: m.id, node: null, via: "inside" };
     }
@@ -654,20 +688,15 @@ export class Measure {
 
   /** Snapdata for en side; leses i bakgrunnen første gang siden brukes. */
   private snapIndex(page: number): SnapIndex | null {
-    if (this.snaps.has(page)) return this.snaps.get(page) ?? null;
-    if (!this.snapLoading.has(page) && this.doc) {
-      this.snapLoading.add(page);
-      const doc = this.doc;
-      const token = this.token;
-      doc
+    if (this.s.snaps.has(page)) return this.s.snaps.get(page) ?? null;
+    const st = this.s;
+    if (!st.snapLoading.has(page) && st.doc) {
+      st.snapLoading.add(page);
+      st.doc
         .getPage(page + 1)
         .then((p) => SnapIndex.build(p))
-        .then((index) => {
-          if (token === this.token) this.snaps.set(page, index);
-        })
-        .catch(() => {
-          if (token === this.token) this.snaps.set(page, null);
-        });
+        .then((index) => st.snaps.set(page, index))
+        .catch(() => st.snaps.set(page, null));
     }
     return null;
   }
@@ -717,7 +746,7 @@ export class Measure {
 
     if (!this.drawing) this.drawing = { page, points: [p] };
     else pts.push(p);
-    this.selected = null;
+    this.s.selected = null;
     if (this.kind === "distance" && this.drawing.points.length === 2) return this.finish();
     this.updateHint();
     this.drawPreview(page);
@@ -728,7 +757,7 @@ export class Measure {
     if (!d) return;
     const need = this.kind === "area" ? 3 : 2;
     if (d.points.length < need) return;
-    const region = regionAt(this.pdfScales.get(d.page), d.points[0]);
+    const region = regionAt(this.s.pdfScales.get(d.page), d.points[0]);
     const m: Measurement = {
       id: this.nextId++,
       page: d.page,
@@ -737,8 +766,8 @@ export class Measure {
       fixed: region ? { metersPerPoint: region.metersPerPoint, label: `${region.label} fra PDF` } : null,
     };
     this.remember();
-    this.items.push(m);
-    this.selected = m.id;
+    this.s.items.push(m);
+    this.s.selected = m.id;
     this.drawing = null;
     this.cursor = null;
     this.redraw(d.page);
@@ -756,29 +785,29 @@ export class Measure {
   }
 
   private remove(id: number): void {
-    const m = this.items.find((x) => x.id === id);
+    const m = this.s.items.find((x) => x.id === id);
     if (!m) return;
     this.remember();
-    this.items = this.items.filter((x) => x.id !== id);
-    if (this.selected === id) this.selected = null;
+    this.s.items = this.s.items.filter((x) => x.id !== id);
+    if (this.s.selected === id) this.s.selected = null;
     this.redraw(m.page);
     this.markDirty();
     this.updateHint();
   }
 
   private clearAll(): void {
-    const pages = new Set(this.items.map((m) => m.page));
-    if (!this.items.length) return;
+    const pages = new Set(this.s.items.map((m) => m.page));
+    if (!this.s.items.length) return;
     this.remember();
-    this.items = [];
-    this.selected = null;
+    this.s.items = [];
+    this.s.selected = null;
     for (const p of pages) this.redraw(p);
     this.markDirty();
   }
 
   private select(id: number, reveal: boolean): void {
-    this.selected = id;
-    const m = this.items.find((x) => x.id === id);
+    this.s.selected = id;
+    const m = this.s.items.find((x) => x.id === id);
     if (!m) return;
     if (reveal && m.page !== this.viewer.current) this.viewer.goToPage(m.page);
     this.redrawAll();
@@ -794,8 +823,8 @@ export class Measure {
     const ctrl = e.ctrlKey || e.metaKey;
     if (k === "Escape") {
       if (this.drawing || this.calibrating) this.cancelDrawing();
-      else if (this.selected !== null) {
-        this.selected = null;
+      else if (this.s.selected !== null) {
+        this.s.selected = null;
         this.redrawAll();
         this.refreshPanel();
         this.updateHint();
@@ -808,7 +837,7 @@ export class Measure {
       if (!this.drawing.points.length) this.drawing = null;
       this.drawPreview(page);
       this.updateHint();
-    } else if ((k === "Delete" || k === "Backspace") && this.selected !== null) this.remove(this.selected);
+    } else if ((k === "Delete" || k === "Backspace") && this.s.selected !== null) this.remove(this.s.selected);
     else if (ctrl && k.toLowerCase() === "z" && !this.drawing) this.undo();
     else if (!ctrl && (k === "d" || k === "D")) this.setKind("distance");
     else if (!ctrl && (k === "l" || k === "L")) this.setKind("length");
@@ -823,7 +852,7 @@ export class Measure {
     if (this.drawing || this.calibrating) delete this.viewer.el.dataset.mhover;
     let t: string;
     if (this.calibrating) t = this.drawing ? "Klikk sluttpunktet på det kjente målet" : "Kalibrer: klikk startpunktet på et kjent mål";
-    else if (!this.drawing && this.selected !== null) t = "Dra punktene · dobbeltklikk på kanten gir nytt punkt · Delete sletter";
+    else if (!this.drawing && this.s.selected !== null) t = "Dra punktene · dobbeltklikk på kanten gir nytt punkt · Delete sletter";
     else if (!this.drawing) t = this.kind === "distance" ? "Klikk startpunkt" : "Klikk første punkt";
     else if (this.kind === "distance") t = "Klikk sluttpunkt · Shift låser vinkelen";
     else if (this.kind === "length") t = "Klikk flere punkter · dobbeltklikk eller Enter avslutter";
@@ -851,18 +880,18 @@ export class Measure {
   }
 
   private refreshPanel(): void {
-    this.count.textContent = this.items.length ? `(${this.items.length})` : "";
-    this.panel.hidden = !this.active || (this.items.length === 0 && !this.dirty);
+    this.count.textContent = this.s.items.length ? `(${this.s.items.length})` : "";
+    this.panel.hidden = !this.active || (this.s.items.length === 0 && !this.dirty);
     this.saveBtn.disabled = !this.dirty;
     this.saveBtn.classList.toggle("primary", this.dirty);
     this.saveBtn.title = this.dirty ? "Lagre målene i PDF-fila (Ctrl+S)" : "Målene er lagret i fila";
     this.list.replaceChildren(
-      ...this.items.map((m, i) => {
+      ...this.s.items.map((m, i) => {
         const d = this.describe(m);
         const scale = m.fixed?.label ?? this.scaleFor(m.page)?.label ?? "uten målestokk";
         const row = h(
           "li",
-          { class: m.id === this.selected ? "selected" : "" },
+          { class: m.id === this.s.selected ? "selected" : "" },
           h("span", { class: "measure-nr" }, String(i + 1)),
           h("span", { class: "measure-desc" }, h("span", { class: "measure-value" }, d.main), h("span", { class: "muted" }, `${KIND_NAMES[m.kind]} · side ${m.page + 1} · ${scale}`)),
         );
@@ -878,7 +907,7 @@ export class Measure {
     let areas = 0;
     let len = 0;
     let lens = 0;
-    for (const m of this.items) {
+    for (const m of this.s.items) {
       const v = this.describe(m).value;
       if (v === null) continue;
       if (m.kind === "area") {
@@ -900,7 +929,7 @@ export class Measure {
   private async copyTable(): Promise<void> {
     const num = (v: number) => v.toFixed(2).replace(".", ",");
     const rows = [["Nr", "Side", "Type", "Verdi", "Enhet", "Omkrets (m)", "Målestokk"].join("\t")];
-    this.items.forEach((m, i) => {
+    this.s.items.forEach((m, i) => {
       const d = this.describe(m);
       const scale = m.fixed?.label ?? this.scaleFor(m.page)?.label ?? "";
       const unit = d.value === null ? "" : m.kind === "area" ? "m²" : this.unit;
@@ -917,7 +946,7 @@ export class Measure {
       document.execCommand("copy");
       ta.remove();
     }
-    toast(`${this.items.length} mål kopiert – lim inn i Excel`, "success");
+    toast(`${this.s.items.length} mål kopiert – lim inn i Excel`, "success");
   }
 
   // ---------- Tegning på sidene ----------
@@ -995,9 +1024,9 @@ export class Measure {
     if (!layer) return;
     const shapes: SVGElement[] = [];
     const labels: HTMLElement[] = [];
-    for (const m of this.items) {
+    for (const m of this.s.items) {
       if (m.page !== page) continue;
-      const sel = m.id === this.selected ? " selected" : "";
+      const sel = m.id === this.s.selected ? " selected" : "";
       const closed = m.kind === "area";
       shapes.push(this.shape(layer, m.points, closed, `m-shape ${m.kind}${sel}`));
       for (const p of m.points) labels.push(this.dot(layer, p, sel));
@@ -1034,7 +1063,7 @@ export class Measure {
     let text: HTMLElement | null = null;
     if (pts.length >= 2) {
       const fake: Measurement = { id: 0, page, kind: this.calibrating ? "distance" : this.kind, points: pts, fixed: null };
-      const region = regionAt(this.pdfScales.get(page), d.points[0]);
+      const region = regionAt(this.s.pdfScales.get(page), d.points[0]);
       if (region) fake.fixed = { metersPerPoint: region.metersPerPoint, label: region.label };
       const desc = this.calibrating ? { main: formatPaper(pathLength(pts)), sub: undefined } : this.describe(fake);
       const at = closed ? centroid(pts) : (cur ?? pts[pts.length - 1]);

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::{Emitter, Manager};
 
 /// Leser en fil og sender bytene rått til webvisningen (ingen JSON-omvei).
 #[tauri::command]
@@ -39,12 +40,11 @@ fn write_file(request: Request<'_>) -> Result<(), String> {
     })
 }
 
-/// PDF-ene programmet ble startet med (dobbeltklikk på en PDF, «Åpne med»,
-/// eller flere markerte filer via «Send til»). Første verdi er `true` når
-/// ArkiPDF ble startet med `--merge` for å slå sammen.
-#[tauri::command]
-fn startup_files() -> (bool, Vec<String>) {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+/// PDF-ene i en kommandolinje (uten programnavnet) fra dobbeltklikk, «Åpne
+/// med» eller flere markerte filer via «Send til». Første verdi er `true`
+/// når ArkiPDF ble startet med `--merge` for å slå sammen.
+fn launch_files(args: impl Iterator<Item = String>) -> (bool, Vec<String>) {
+    let args: Vec<String> = args.collect();
     let merge = args.iter().any(|a| a == "--merge");
     let files = args
         .into_iter()
@@ -53,9 +53,24 @@ fn startup_files() -> (bool, Vec<String>) {
     (merge, files)
 }
 
+/// Filene programmet ble startet med.
+#[tauri::command]
+fn startup_files() -> (bool, Vec<String>) {
+    launch_files(std::env::args().skip(1))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Ett vindu: åpnes ArkiPDF på nytt (f.eks. dobbeltklikk på en PDF),
+        // sendes filene til vinduet som er åpent, som åpner dem i faner.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let _ = app.emit("open-files", launch_files(argv.into_iter().skip(1)));
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![read_file, write_file, startup_files])
