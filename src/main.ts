@@ -26,6 +26,7 @@ import {
 import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
 import { openShrinkDialog } from "./shrink";
+import { checkForUpdates } from "./update";
 import { Search } from "./search";
 import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
@@ -1200,5 +1201,7 @@ function openLaunched({ files, merge }: { files: string[]; merge: boolean }): vo
 
 showCurrent();
 void startupFiles().then(openLaunched);
+// Litt etter oppstart, så det ikke konkurrerer med å åpne filer.
+setTimeout(() => void checkForUpdates(), 5000);
 // ArkiPDF kjører i ett vindu: filer som åpnes mens det er åpent, kommer hit.
 onLaunchFiles(openLaunched);

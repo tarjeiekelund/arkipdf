@@ -1265,6 +1265,41 @@ input.range {
   color: var(--accent-text);
 }
 
+.update-notice {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(380px, calc(100vw - 40px));
+  padding: 16px 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.update-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 24px;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.update-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
 .drop-overlay {
   position: fixed;
   inset: 0;

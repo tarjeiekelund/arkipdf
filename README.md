@@ -135,6 +135,14 @@ av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 Lager du en tagg som `v0.3.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
+### Nye versjoner
+
+ArkiPDF sjekker én gang i døgnet om det finnes en nyere release på GitHub.
+Da vises en melding nede til høyre med **Last ned** (henter installeren),
+**Hva er nytt?** (åpner release-siden) og **Hopp over** (ikke spør om denne
+versjonen igjen). Installeren kjøres over den gamle versjonen. Sjekken krever
+at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
+
 ## Teknikk
 
 - [Tauri 2](https://tauri.app): et lite Rust-skall rundt Windows' innebygde
@@ -165,6 +173,7 @@ lagt ut som en GitHub-release.
 │   ├── merge.ts     «Slå sammen»
 │   ├── compress.ts  reduksjon av filstørrelse (bilder, duplikater)
 │   ├── shrink.ts    dialogen «Reduser filstørrelse»
+│   ├── update.ts    varsel om nye versjoner
 │   ├── exportpng.ts eksport til PNG
 │   ├── search.ts    tekstsøk med markering av treff
 │   ├── print.ts     utskrift
