@@ -12,9 +12,10 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Funksjon | Hvordan |
 | --- | --- |
 | Åpne PDF-er, store som små | **Ctrl+O** (du kan velge flere), dra filer inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. ArkiPDF husker hvilken side du var på |
+| PDF fra bilder | Åpne eller dra inn et bilde (JPG, PNG, WebP, GIF, BMP), så blir det en PDF som vises før den lagres. Skannede tegninger med oppgitt oppløsning får sin virkelige arkstørrelse, så målestokken stemmer; foto og skjermbilder legges på A4. Mobilbilder står riktig vei. Flere bilder blir én PDF med **Slå sammen** |
 | Faner | Hvert dokument åpnes i sin egen fane, i samme vindu, også når du dobbeltklikker flere PDF-er i Utforsker. Hver fane husker side, zoom, rotasjon og mål. **Ctrl+Tab** / **Ctrl+Shift+Tab** (eller Ctrl+PageDown/PageUp) bytter fane, **Ctrl+W** eller midtre musetast lukker. En prikk på fanen viser at noe ikke er lagret, og ArkiPDF spør før slike faner lukkes |
 | Presentere i fullskjerm | **Ctrl+L** (eller F5). Se [Presentasjon](#presentasjon) |
-| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Resultatet åpnes i en ny fane. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
+| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer (også bilder, som blir en side hver) og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Resultatet åpnes i en ny fane. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
 | Endre rekkefølge på sider | Dra miniatyrene i sidepanelet dit du vil ha dem. Ctrl-klikk og Shift-klikk velger flere sider, som dras samlet. **Delete** sletter valgte sider, og **Ctrl+Z** angrer. Endringene gjelder med én gang, men skrives til fila først når du lagrer: fanen får en prikk, og stripa over dokumentet har **Lagre** (Ctrl+S), **Lagre som…** (Ctrl+Shift+S) og **Forkast**. Mål følger sidene sine |
 | Sortere i rutenett | **Ctrl+K** («Sorter sider») viser alle sidene i et rutenett med store miniatyrer, der du også kan rotere (Ctrl+R). **Bruk** tar endringene i bruk og går tilbake til vanlig visning; de lagres som over |
 | Redusere filstørrelsen | Knappen **Reduser**. **Skjerm og e-post** skalerer bildene ned til 150 dpi slik de står på arket; **Utskrift** til 300 dpi. Linjer, tekst og mål er vektorer og røres ikke. Like bilder og fonter (vanlig i sammenslåtte sett) lagres bare én gang, og ubrukte objekter fjernes. Resultatet vises før det lagres, og Ctrl+Z angrer |
@@ -100,8 +101,14 @@ Trykk **K** (eller knappen **Merk**) for å markere på tegningen.
   Bluebeam, Edge og andre PDF-lesere, og ligger i laget «Merknader (ArkiPDF)».
   Neste gang fila åpnes i ArkiPDF, kan de redigeres igjen. Mål og markeringer
   lagres sammen.
+- Lista nederst til høyre viser alle markeringene; klikk for å gå til en.
 - Kommentarer laget i andre programmer vises i ArkiPDF, men kan ikke endres
   her.
+- Ulagrede mål og markeringer kommer med på utskrift og i presentasjonen.
+- Er PDF-en signert digitalt, spør ArkiPDF før den lagres over: mål,
+  markeringer og sideendringer gjør signaturen ugyldig. Bruk «Lagre som…» for
+  å beholde originalen. (Utfylte skjemafelt lagres som et tillegg og beholder
+  signaturen.)
 
 ### Skjemaer
 
@@ -226,7 +233,8 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── exportpng.ts eksport til PNG
 │   ├── search.ts    tekstsøk med markering av treff
 │   ├── print.ts     utskrift
-│   ├── edit.ts      skriving av PDF (pdf-lib): sider, sammenslåing, låsing av skjema
+│   ├── edit.ts      skriving av PDF (pdf-lib): sider, sammenslåing, bilder, låsing av skjema
+│   ├── images.ts    bilder som må tegnes om (WebP, mobilbilder) før de legges i PDF
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
 ├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)

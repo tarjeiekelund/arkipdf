@@ -1,6 +1,7 @@
 import "@fontsource-variable/hanken-grotesk";
 import "./styles.css";
-import { flattenForm, rearrangePages, type PageItem } from "./edit";
+import { flattenForm, IMAGE_FILE, imagesToPdf, isSigned, rearrangePages, type PageItem } from "./edit";
+import { normalizeImage } from "./images";
 import { openExportDialog } from "./exportpng";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
@@ -18,7 +19,7 @@ import {
   onLaunchFiles,
   openFile,
   openUrl,
-  pickPdfs,
+  pickDocuments,
   pickSavePath,
   setTitle,
   startupFiles,
@@ -50,6 +51,8 @@ interface OpenDoc {
   markup: MarkupDoc | null;
   /** Skjemafelt er fylt ut, men ikke lagret (verdiene ligger i `doc.annotationStorage`). */
   formsDirty: boolean;
+  /** Fila er signert digitalt (se `confirmSigned`). */
+  signed: boolean;
   /** Sidene er flyttet eller slettet siden fila ble lagret; endringen finnes bare i minnet. */
   modified: boolean;
   /** Tidligere versjoner av dokumentet, for å angre sideendringer (Ctrl+Z). */
@@ -144,10 +147,10 @@ async function saveAnnotations(saveAs = false): Promise<boolean> {
   if (!tab) return false;
   let path = tab.path;
   if (tab.unsaved || saveAs) {
-    const target = await pickSavePath(saveAs ? tab.path.replace(/\.pdf$/i, " (endret).pdf") : path, tab.unsaved ? "Lagre sammenslått PDF" : "Lagre som");
+    const target = await pickSavePath(saveAs ? tab.path.replace(/\.pdf$/i, " (endret).pdf") : path, tab.unsaved ? "Lagre PDF" : "Lagre som");
     if (!target || current !== tab) return false;
     path = target;
-  }
+  } else if ((measure.dirty || markup.dirty || tab.modified) && !(await confirmSigned(tab))) return false;
   const page = viewer.current;
   const wasMeasuring = measure.active;
   const wasMarking = markup.active;
@@ -189,7 +192,7 @@ function updateDocBar(): void {
   const onlyForms = t.formsDirty && !t.unsaved && !t.modified;
   barTitle.textContent = t.unsaved ? "Ikke lagret" : onlyForms ? "Skjema" : "Endret";
   barHint.textContent = t.unsaved
-    ? "Se over det sammenslåtte dokumentet. Dra sidene i sidepanelet for å endre rekkefølgen før du lagrer."
+    ? "Dokumentet finnes ikke som fil ennå. Dra sidene i sidepanelet for å endre rekkefølgen, og lagre når det er klart."
     : onlyForms
       ? "Skjemaet er fylt ut. Verdiene skrives til fila først når du lagrer."
       : "Dokumentet er endret. Endringene skrives til fila først når du lagrer. Ctrl+Z angrer.";
@@ -205,8 +208,8 @@ const screenBtn = docBtn(button("", "caret", () => void openScreenMenu(), { titl
 const toolbar = h(
   "header",
   { class: "toolbar" },
-  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF (Ctrl+O)", className: "keep-label" }),
-  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen flere PDF-er (Ctrl+M)", className: "keep-label" }),
+  button("Åpne", "open", () => void openDialog(), { title: "Åpne PDF, eller gjør bilder om til PDF (Ctrl+O)", className: "keep-label" }),
+  button("Slå sammen", "merge", () => startMerge(), { title: "Slå sammen PDF-er og bilder (Ctrl+M)", className: "keep-label" }),
   h("span", { class: "sep" }),
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
@@ -648,7 +651,7 @@ async function loadWithPassword(bytes: Uint8Array, name: string): Promise<PDFDoc
 /** Hva i fanen som ikke er lagret i fila (tomt: alt er lagret). */
 function unsavedReasons(t: OpenDoc): string[] {
   const r: string[] = [];
-  if (t.unsaved) r.push("sammenslått dokument som ikke er lagret");
+  if (t.unsaved) r.push("nytt dokument som ikke er lagret");
   else if (t.modified) r.push("sidene er endret");
   const pending = [t.measure?.dirty && "mål", t.markup?.dirty && "markeringer"].filter(Boolean).join(" og ");
   if (pending) r.push(`${pending} som ikke er lagret i fila`);
@@ -669,12 +672,27 @@ async function confirmQuit(): Promise<boolean> {
 }
 
 async function openDialog(): Promise<void> {
-  await openPaths(await pickPdfs(true));
+  await openPaths(await pickDocuments(true));
 }
 
-/** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). */
+/** Åpner flere filer, hver i sin fane (én om gangen, så den siste vises til slutt). Bilder blir PDF-er. */
 async function openPaths(paths: string[]): Promise<void> {
-  for (const p of paths) await openPath(p);
+  for (const p of paths) await (IMAGE_FILE.test(p) ? openImage(p) : openPath(p));
+}
+
+/** Gjør et bilde om til en PDF og åpner den som et nytt, ulagret dokument ved siden av bildet. */
+async function openImage(path: string): Promise<void> {
+  const b = busy(`Gjør ${baseName(path)} om til PDF…`);
+  try {
+    const name = baseName(path);
+    const pdf = await imagesToPdf([{ name, bytes: (await openFile(path)).bytes }], normalizeImage);
+    b.done();
+    await openPath(path.replace(IMAGE_FILE, ".pdf"), { page: 0, bytes: pdf, unsaved: true });
+  } catch (e) {
+    toast(`Kunne ikke gjøre ${baseName(path)} om til PDF: ${errorMessage(e)}`, "error");
+  } finally {
+    b.done();
+  }
 }
 
 interface OpenOptions {
@@ -717,7 +735,7 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
     // En ny versjon av samme dokument beholder zoom og rotasjon; en ny fil får standard zoom.
     const z = store.get("zoom");
     const view = old ? { page, zoom: viewer.zoomMode, rotation: viewer.rotation } : { page, zoom: (z === "width" || z === "page" ? z : "auto") as ZoomMode, rotation: 0 };
-    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, markup: null, formsDirty: false, modified: false, pageHistory: [] };
+    const tab: OpenDoc = { ...file, doc, thumbs: new ThumbCache(doc, 320), unsaved, view, measure: null, markup: null, formsDirty: false, signed: !unsaved && isSigned(file.bytes), modified: false, pageHistory: [] };
     if (old && tabs.includes(old)) {
       tabs[tabs.indexOf(old)] = tab;
       old.thumbs.dispose();
@@ -836,7 +854,7 @@ function showCurrent(): void {
     refresh();
     return;
   }
-  content.replaceChildren(unsavedBar, measure.bar, markup.bar, viewer.el, search.el, measure.panel);
+  content.replaceChildren(unsavedBar, measure.bar, markup.bar, viewer.el, search.el, measure.panel, markup.panel);
   if (viewer.document !== current.doc) {
     const tab = current;
     search.setDocument(tab.doc);
@@ -866,10 +884,13 @@ function showCurrent(): void {
 async function startPresentation(): Promise<void> {
   if (!current || organizer) return;
   if (presentation?.active) return presentation.stop();
-  presentation = new Presentation(current.doc, viewer.rotation);
+  // Mål og markeringer som ikke er lagret ennå, vises også.
+  const { doc, temporary } = await withPending(current);
+  presentation = new Presentation(doc, viewer.rotation);
   presentation.onExit = (page) => {
     viewer.goToPage(page);
     viewer.el.focus();
+    if (temporary) void doc.loadingTask.destroy();
   };
   // Husket skjerm (f.eks. projektoren) brukes hvis den fortsatt er tilkoblet.
   const wanted = store.get("presentScreen");
@@ -1111,6 +1132,18 @@ function deleteSelectedPages(): void {
   );
 }
 
+/**
+ * Før en signert PDF overskrives: mål, markeringer og sideendringer skriver
+ * fila på nytt, og da blir den digitale signaturen ugyldig. (Utfylte skjema
+ * lagres som et tillegg til fila og beholder signaturen.)
+ */
+async function confirmSigned(tab: OpenDoc): Promise<boolean> {
+  if (!tab.signed) return true;
+  return confirmDialog(
+    `«${tab.name}» er signert digitalt. Lagrer du endringene i denne fila, blir signaturen ugyldig.\n\nLagre likevel?\n\n(Velg «Nei» og bruk «Lagre som…» for å beholde originalen med gyldig signatur.)`,
+  );
+}
+
 /** Lagrer dokumentet (Ctrl+S), eller som ny fil (Ctrl+Shift+S). Mål som ikke er lagret, blir med. */
 async function saveDoc(saveAs = false): Promise<void> {
   const tab = current;
@@ -1119,6 +1152,7 @@ async function saveDoc(saveAs = false): Promise<void> {
   if (measure.dirty || markup.dirty || tab.formsDirty) return void (await saveAnnotations(saveAs));
   if (tab.unsaved) return saveUnsaved();
   if (!tab.modified && !saveAs) return;
+  if (!saveAs && !(await confirmSigned(tab))) return;
   let target = tab.path;
   if (saveAs) {
     const picked = await pickSavePath(tab.path.replace(/\.pdf$/i, " (endret).pdf"), "Lagre som");
@@ -1167,11 +1201,11 @@ function showMerged(bytes: Uint8Array, suggestedPath: string): void {
   void openPath(suggestedPath, { page: 0, bytes, unsaved: true });
 }
 
-/** Lagrer et sammenslått dokument som ikke er lagret ennå. */
+/** Lagrer et nytt dokument (sammenslått eller laget av bilder) som ikke er lagret ennå. */
 async function saveUnsaved(): Promise<void> {
   const doc = current;
   if (!doc?.unsaved) return;
-  const target = await pickSavePath(doc.path, "Lagre sammenslått PDF");
+  const target = await pickSavePath(doc.path, "Lagre PDF");
   if (!target || current !== doc) return;
   const b = busy("Lagrer…");
   try {
@@ -1195,8 +1229,29 @@ async function saveUnsaved(): Promise<void> {
 async function startPrint(): Promise<void> {
   const tab = current;
   if (!tab || organizer) return;
-  // Vektorutskrift bruker fila; ta med verdiene som er fylt ut.
-  openPrintDialog(tab.doc, await bytesWithForms(tab), tab.name, viewer.current);
+  // Utskriften tar med det som ikke er lagret ennå: utfylte felt, mål og markeringer.
+  const { doc, bytes } = await withPending(tab);
+  openPrintDialog(doc, bytes, tab.name, viewer.current);
+}
+
+/**
+ * Dokumentet slik det blir når det lagres (for utskrift og presentasjon).
+ * Uten ulagrede mål eller markeringer er det fanens eget dokument.
+ */
+async function withPending(tab: OpenDoc): Promise<{ doc: PDFDocumentProxy; bytes: Uint8Array; temporary: boolean }> {
+  const bytes = await bytesWithForms(tab);
+  if (!measure.dirty && !markup.dirty) return { doc: tab.doc, bytes, temporary: false };
+  const b = busy("Gjør klar…");
+  try {
+    let out = bytes;
+    if (measure.dirty) out = await measure.writeTo(out);
+    if (markup.dirty) out = await markup.writeTo(out);
+    return { doc: await loadPdf(out), bytes: out, temporary: true };
+  } catch {
+    return { doc: tab.doc, bytes, temporary: false };
+  } finally {
+    b.done();
+  }
 }
 
 function startExport(): void {

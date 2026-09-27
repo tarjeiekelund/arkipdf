@@ -59,3 +59,51 @@ console.log("OK");
   const p = await (await getDocument({ data: flat.slice() }).promise).getPage(1);
   assert.equal((await p.getTextContent()).items.map((i) => i.str).join(""), "Låst verdi");
 }
+
+// Bilder til PDF: skannet tegning med oppløsning får virkelig størrelse, andre bilder A4.
+{
+  const { imageInfo, imagePage, imagesToPdf, isSigned } = await import("../src/edit.ts");
+  const { deflateSync, crc32 } = await import("node:zlib");
+  const chunk = (type, data) => {
+    const b = Buffer.alloc(12 + data.length);
+    b.writeUInt32BE(data.length, 0);
+    b.write(type, 4, "latin1");
+    data.copy(b, 8);
+    b.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, "latin1"), data])), 8 + data.length);
+    return b;
+  };
+  const png = (w, h, dpi) => {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(w, 0);
+    ihdr.writeUInt32BE(h, 4);
+    ihdr[8] = 8; // 8 bit
+    ihdr[9] = 2; // RGB
+    const raw = Buffer.alloc((w * 3 + 1) * h, 200);
+    for (let y = 0; y < h; y++) raw[y * (w * 3 + 1)] = 0;
+    const parts = [Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr)];
+    if (dpi) {
+      const phys = Buffer.alloc(9);
+      phys.writeUInt32BE(Math.round(dpi / 0.0254), 0);
+      phys.writeUInt32BE(Math.round(dpi / 0.0254), 4);
+      phys[8] = 1;
+      parts.push(chunk("pHYs", phys));
+    }
+    parts.push(chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0)));
+    return new Uint8Array(Buffer.concat(parts));
+  };
+  const scan = png(600, 300, 300);
+  assert.deepEqual(imageInfo(scan), { kind: "png", width: 600, height: 300, dpi: 300, orientation: 1 });
+  // 600 × 300 px ved 300 dpi = 2 × 1 tommer = 144 × 72 pt.
+  assert.deepEqual(imagePage(600, 300, 300).page, [144, 72]);
+  // Uten oppløsning (eller skjermoppløsning): A4 liggende for et bredt bilde.
+  assert.deepEqual(imagePage(600, 300, null).page, [841.89, 595.28]);
+  assert.deepEqual(imagePage(4000, 3000, 72).page, [841.89, 595.28]);
+  const pdf = await imagesToPdf([{ name: "skann.png", bytes: scan }, { name: "foto.png", bytes: png(300, 400, null) }], async () => {
+    throw new Error("skal ikke trengs");
+  });
+  const d = await PDFDocument.load(pdf);
+  assert.deepEqual(d.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]), [[144, 72], [595, 842]]);
+  assert.equal(isSigned(pdf), false);
+  assert.equal(isSigned(new TextEncoder().encode("%PDF-1.7 1 0 obj << /Type /Sig /ByteRange [0 10 20 30] >>")), true);
+}
+console.log("bilder: OK");

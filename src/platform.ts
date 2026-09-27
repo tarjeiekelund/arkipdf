@@ -18,6 +18,14 @@ export interface OpenedFile {
 }
 
 const pdfFilter = [{ name: "PDF-dokumenter", extensions: ["pdf"] }];
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+const openFilter = [
+  { name: "PDF og bilder", extensions: ["pdf", ...IMAGE_EXTENSIONS] },
+  { name: "PDF-dokumenter", extensions: ["pdf"] },
+  { name: "Bilder", extensions: IMAGE_EXTENSIONS },
+];
+/** Filer ArkiPDF kan åpne: PDF, og bilder som gjøres om til PDF. */
+const openable = (name: string) => /\.(pdf|jpe?g|png|webp|gif|bmp)$/i.test(name);
 
 // Nettleserreserve: filer valgt via <input> huskes på «sti» (= navn).
 const browserFiles = new Map<string, Uint8Array>();
@@ -37,11 +45,11 @@ export function joinPath(dir: string, name: string): string {
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
 }
 
-function pickBrowserFiles(multiple: boolean): Promise<string[]> {
+function pickBrowserFiles(multiple: boolean, images = false): Promise<string[]> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "application/pdf,.pdf";
+    input.accept = images ? `application/pdf,.pdf,${IMAGE_EXTENSIONS.map((e) => `.${e}`).join(",")}` : "application/pdf,.pdf";
     input.multiple = multiple;
     input.onchange = async () => {
       const paths: string[] = [];
@@ -59,6 +67,14 @@ function pickBrowserFiles(multiple: boolean): Promise<string[]> {
 export async function pickPdfs(multiple: boolean): Promise<string[]> {
   if (!isTauri) return pickBrowserFiles(multiple);
   const res = await dialog.open({ multiple, directory: false, filters: pdfFilter, title: multiple ? "Velg PDF-filer" : "Åpne PDF" });
+  if (!res) return [];
+  return Array.isArray(res) ? res : [res];
+}
+
+/** Velg PDF-er eller bilder (bilder gjøres om til PDF). */
+export async function pickDocuments(multiple: boolean): Promise<string[]> {
+  if (!isTauri) return pickBrowserFiles(multiple, true);
+  const res = await dialog.open({ multiple, directory: false, filters: openFilter, title: multiple ? "Velg PDF-er eller bilder" : "Åpne PDF eller bilde" });
   if (!res) return [];
   return Array.isArray(res) ? res : [res];
 }
@@ -229,7 +245,7 @@ export function onFilesDropped(handler: (paths: string[]) => void, setHover: (on
       else if (p.type === "leave") setHover(false);
       else if (p.type === "drop") {
         setHover(false);
-        const pdfs = p.paths.filter((x) => x.toLowerCase().endsWith(".pdf"));
+        const pdfs = p.paths.filter(openable);
         if (pdfs.length) handler(pdfs);
       }
     });
@@ -250,7 +266,7 @@ export function onFilesDropped(handler: (paths: string[]) => void, setHover: (on
     setHover(false);
     const paths: string[] = [];
     for (const f of Array.from(e.dataTransfer.files)) {
-      if (!f.name.toLowerCase().endsWith(".pdf")) continue;
+      if (!openable(f.name)) continue;
       browserFiles.set(f.name, new Uint8Array(await f.arrayBuffer()));
       paths.push(f.name);
     }

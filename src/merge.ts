@@ -1,8 +1,9 @@
 // «Slå sammen»: velg filer, bestem rekkefølge og sett dem sammen til én PDF.
 // Resultatet åpnes som et ulagret dokument, så det kan ses over og justeres
 // før det lagres.
-import { mergePdfs } from "./edit";
-import { baseName, dirName, joinPath, pickPdfs, readFile } from "./platform";
+import { IMAGE_FILE, imagesToPdf, mergePdfs } from "./edit";
+import { normalizeImage } from "./images";
+import { baseName, dirName, joinPath, pickDocuments, readFile } from "./platform";
 import { busy, button, errorMessage, h, icon, modal, nextFrame, toast } from "./ui";
 
 export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array, suggestedPath: string) => void): void {
@@ -45,7 +46,7 @@ export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array,
   };
 
   const add = async () => {
-    const picked = await pickPdfs(true);
+    const picked = await pickDocuments(true);
     files.push(...picked);
     render();
   };
@@ -60,7 +61,10 @@ export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array,
         if (b.cancelled()) return;
         b.update(`Leser ${baseName(files[i])} (${i + 1} av ${files.length})`, i / files.length / 2);
         await nextFrame();
-        loaded.push({ name: baseName(files[i]), bytes: await readFile(files[i]) });
+        const name = baseName(files[i]);
+        const bytes = await readFile(files[i]);
+        // Bilder blir en side hver.
+        loaded.push({ name, bytes: IMAGE_FILE.test(name) ? await imagesToPdf([{ name, bytes }], normalizeImage) : bytes });
       }
       const out = await mergePdfs(loaded, (n) => b.update(`Slår sammen (${n} av ${files.length})`, 0.5 + n / files.length / 2));
       if (b.cancelled()) return;
@@ -75,12 +79,12 @@ export function openMergeDialog(initial: string[], onMerged: (bytes: Uint8Array,
   const body = h(
     "div",
     { class: "merge" },
-    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Du ser resultatet før du lagrer."),
+    h("p", { class: "muted" }, "Filene settes sammen i rekkefølgen under. Bilder blir en side hver. Du ser resultatet før du lagrer."),
     list,
     empty,
     button("Legg til filer…", "plus", () => void add()),
   );
-  const close = modal("Slå sammen PDF-er", body, [button("Avbryt", null, () => close()), mergeBtn]);
+  const close = modal("Slå sammen PDF-er og bilder", body, [button("Avbryt", null, () => close()), mergeBtn]);
   render();
   if (!files.length) void add();
 }
