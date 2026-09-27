@@ -12,7 +12,7 @@ const icons = "src-tauri/icons";
 const tauri = (args) => execSync(`npx tauri icon ${args}`, { stdio: "inherit" });
 
 tauri("icon/app-icon.svg");
-// Blad lages bare for Windows; mobilikonene trengs ikke.
+// ArkiPDF lages bare for Windows; mobilikonene trengs ikke.
 for (const dir of ["android", "ios"]) rmSync(join(icons, dir), { recursive: true, force: true });
 
 const tmp = mkdtempSync(join(tmpdir(), "blad-icons-"));

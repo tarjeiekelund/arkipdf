@@ -1,17 +1,19 @@
-# Blad
+# ArkiPDF
 
-**Blad** er en enkel, lett og rask PDF-leser for Windows, laget som et
-alternativ til Adobe Acrobat for det man faktisk gjør til daglig.
+**ArkiPDF** er en rask PDF-leser for tegninger, laget for arkitekter og
+andre som jobber med tegningssett. Den er et lett alternativ til Adobe
+Acrobat for det man faktisk gjør til daglig: lese, måle, slå sammen og
+presentere tegninger.
 
-Navnet spiller på *blad* som i en side i et dokument, og et lett blad.
+Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 
 ## Funksjoner
 
 | Funksjon | Hvordan |
 | --- | --- |
-| Åpne PDF-er, store som små | **Ctrl+O**, dra fila inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. Blad husker hvilken side du var på |
+| Åpne PDF-er, store som små | **Ctrl+O**, dra fila inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. ArkiPDF husker hvilken side du var på |
 | Presentere i fullskjerm | **Ctrl+L** (eller F5). Se [Presentasjon](#presentasjon) |
-| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → Blad – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
+| Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Drar du flere PDF-er inn i vinduet, åpnes sammenslåingen direkte. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
 | Endre rekkefølge på sider | **Ctrl+K**. Dra sidene dit du vil ha dem. **Ctrl+S** lagrer tilbake i samme fil, **Ctrl+Shift+S** lagrer som ny fil. Du kan også rotere (Ctrl+R) og slette (Delete) sider, og angre (Ctrl+Z). Glidebryteren gir større miniatyrer |
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
@@ -65,8 +67,8 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
 - **Lagre i fila** (knappen i lista, eller Ctrl+S mens du måler) skriver
   målene inn i PDF-en som vanlige målekommentarer, med linjer og tall. De
   vises da også i Acrobat, Bluebeam og andre PDF-lesere, samlet i laget
-  «Mål (Blad)» som kan slås av og på der. Neste gang fila åpnes i Blad, kan
-  målene redigeres igjen, og målestokkvalgene er husket. Blad spør før
+  «Mål (ArkiPDF)» som kan slås av og på der. Neste gang fila åpnes i ArkiPDF,
+  kan målene redigeres igjen, og målestokkvalgene er husket. ArkiPDF spør før
   ulagrede mål forkastes.
 
 ### Presentasjon
@@ -115,13 +117,17 @@ Installeren bygges automatisk av GitHub Actions
 (`.github/workflows/windows.yml`):
 
 1. Gå til **Actions → «Windows-bygg»** i GitHub og åpne siste kjøring.
-2. Last ned artefakten **Blad-installer** og pakk ut zip-fila.
-3. Kjør `Blad_0.1.0_x64-setup.exe`. Den installeres for din bruker, uten
+2. Last ned artefakten **ArkiPDF-installer** og pakk ut zip-fila.
+3. Kjør `ArkiPDF_0.1.0_x64-setup.exe`. Den installeres for din bruker, uten
    administratorrettigheter, og registrerer seg som et program som kan åpne
    PDF-filer.
 
-Vil du gjøre Blad til standardprogram for PDF: høyreklikk en PDF →
-*Åpne med* → *Velg en annen app* → **Blad** → *Alltid*.
+Vil du gjøre ArkiPDF til standardprogram for PDF: høyreklikk en PDF →
+*Åpne med* → *Velg en annen app* → **ArkiPDF** → *Alltid*.
+
+Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
+av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
+«Nylig åpnet» blir med over.
 
 Lager du en tagg som `v0.1.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.

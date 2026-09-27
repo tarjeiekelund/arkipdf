@@ -180,7 +180,7 @@ function emptyState(): HTMLElement {
     "div",
     { class: "empty" },
     h("div", { class: "empty-icon", html: logo() }),
-    h("h1", {}, "Blad"),
+    h("h1", {}, "ArkiPDF"),
     h("p", { class: "muted" }, "Åpne en PDF, eller dra en fil inn i vinduet."),
     button("Åpne PDF…", "open", () => void openDialog(), { primary: true, className: "big" }),
     recentList(),
@@ -533,8 +533,8 @@ async function openPath(path: string, opts: OpenOptions = {}): Promise<void> {
 }
 
 function updateTitle(): Promise<void> {
-  if (!current) return setTitle("Blad");
-  return setTitle(`${current.name}${current.unsaved ? " (ikke lagret)" : ""} – Blad`);
+  if (!current) return setTitle("ArkiPDF");
+  return setTitle(`${current.name}${current.unsaved ? " (ikke lagret)" : ""} – ArkiPDF`);
 }
 
 /** Viser gjeldende dokument (eller startsiden) i innholdsfeltet. */
@@ -595,7 +595,7 @@ async function openScreenMenu(): Promise<void> {
     "div",
     { class: "popover", role: "menu" },
     h("div", { class: "popover-title" }, "Presenter på"),
-    item("Skjermen Blad står på", null, !chosen),
+    item("Skjermen ArkiPDF står på", null, !chosen),
     ...screens.filter((x) => !x.current).map((x) => item(x.label, x.id, x.id === chosen)),
     screens.length <= 1 ? h("div", { class: "popover-note muted" }, isTauri ? "Bare én skjerm er tilkoblet. Koble til projektoren som «Utvid skjerm» (Windows+P) for å velge den her." : "Skjermvalg finnes i Windows-appen.") : null,
   );
@@ -810,7 +810,7 @@ onFilesDropped(
 onCloseRequested(confirmDiscard);
 
 showCurrent();
-// Flere filer (eller «Send til → Blad – slå sammen PDF-er» i Utforsker) åpner sammenslåingen.
+// Flere filer (eller «Send til → ArkiPDF – slå sammen PDF-er» i Utforsker) åpner sammenslåingen.
 void startupFiles().then(({ files, merge }) => {
   if (files.length === 1 && !merge) void openPath(files[0]);
   else if (files.length) openMergeDialog(files, showMerged);

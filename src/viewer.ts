@@ -5,7 +5,7 @@
 // store tegninger ville et skarpt bilde av hele siden blitt altfor stort, så
 // da tegnes i tillegg et «detaljbilde» av bare det utsnittet som vises.
 import { buildLinkLayer, resolveDest, type LinkAction, type Target } from "./links";
-import { LAYER_NAME } from "./measure-pdf";
+import { isMeasureLayer } from "./measure-pdf";
 import { pdfjs, renderPageToCanvas, renderRegion, type OptionalContent, type PDFDocumentProxy } from "./pdf";
 
 /** Sidens geometri ved skala 1 med visningsrotasjon (pdf.js PageViewport). */
@@ -67,7 +67,7 @@ export class Viewer {
   private generation = 0;
   private mode: ZoomMode = "auto";
   private rot = 0;
-  /** Lagoppsett der Blads egne lagrede mål er skjult (de tegnes av målelaget). */
+  /** Lagoppsett der våre egne lagrede mål er skjult (de tegnes av målelaget). */
   private layers: OptionalContent | null = null;
   private toolMode: Tool = "select";
   private spaceHeld = false;
@@ -674,13 +674,13 @@ export class Viewer {
   }
 }
 
-/** Skjuler laget med Blads lagrede mål, hvis dokumentet har det. */
+/** Skjuler laget med lagrede mål, hvis dokumentet har det. */
 async function hideMeasureLayer(doc: PDFDocumentProxy): Promise<OptionalContent | null> {
   try {
     const cfg = await doc.getOptionalContentConfig();
     let found = false;
     for (const [id, group] of cfg) {
-      if ((group as { name?: string })?.name === LAYER_NAME) {
+      if (isMeasureLayer((group as { name?: string })?.name)) {
         cfg.setVisibility(id, false);
         found = true;
       }

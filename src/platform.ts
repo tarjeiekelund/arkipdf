@@ -102,7 +102,7 @@ export async function openFile(path: string): Promise<OpenedFile> {
 
 /**
  * PDF-ene programmet ble startet med (dobbeltklikk, «Åpne med», eller flere
- * filer via «Send til»). `merge` er satt når Blad ble startet for å slå sammen.
+ * filer via «Send til»). `merge` er satt når ArkiPDF ble startet for å slå sammen.
  */
 export async function startupFiles(): Promise<{ files: string[]; merge: boolean }> {
   if (!isTauri) return { files: [], merge: false };
@@ -205,7 +205,7 @@ export async function isFullscreen(): Promise<boolean> {
   return !!document.fullscreenElement;
 }
 
-export async function confirmDialog(message: string, title = "Blad"): Promise<boolean> {
+export async function confirmDialog(message: string, title = "ArkiPDF"): Promise<boolean> {
   if (!isTauri) return window.confirm(message);
   return dialog.ask(message, { title, kind: "warning", okLabel: "Ja", cancelLabel: "Nei" });
 }

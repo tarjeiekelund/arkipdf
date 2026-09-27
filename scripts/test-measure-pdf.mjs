@@ -1,9 +1,9 @@
 // Selvtest av lagring av mål i PDF: node --experimental-strip-types scripts/test-measure-pdf.mjs
 import assert from "node:assert/strict";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, StandardFonts } from "pdf-lib";
 import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { metersPerPointForScale } from "../src/measure-math.ts";
-import { LAYER_NAME, readMeasureData, writeMeasurements } from "../src/measure-pdf.ts";
+import { isMeasureLayer, LAYER_NAME, readMeasureData, writeMeasurements } from "../src/measure-pdf.ts";
 
 const src = await PDFDocument.create();
 const font = await src.embedFont(StandardFonts.Helvetica);
@@ -54,6 +54,15 @@ assert.equal(back2.measurements.length, 1);
 const pdf2 = await getDocument({ data: again.slice() }).promise;
 assert.equal((await (await pdf2.getPage(2)).getAnnotations()).length, 0);
 assert.equal([...(await pdf2.getOptionalContentConfig())].filter(([, g]) => g.name === LAYER_NAME).length, 1, "ikke to lag");
+// Fil lagret mens appen het Blad: laget får nytt navn, og det blir ikke to lag.
+assert.ok(isMeasureLayer("Mål (Blad)") && isMeasureLayer(LAYER_NAME) && !isMeasureLayer("Møbler"));
+const old = await PDFDocument.load(saved);
+const ocgs = old.catalog.lookup(PDFName.of("OCProperties")).lookup(PDFName.of("OCGs"));
+ocgs.lookup(0).set(PDFName.of("Name"), PDFHexString.fromText("Mål (Blad)"));
+const renamed = await writeMeasurements(await old.save(), items.slice(0, 1), new Map(), null);
+const names = [...(await (await getDocument({ data: renamed.slice() }).promise).getOptionalContentConfig())].map(([, g]) => g.name);
+assert.deepEqual(names.filter(isMeasureLayer), [LAYER_NAME]);
+assert.equal((await readMeasureData(renamed)).measurements.length, 1);
 // Ingen mål igjen: kommentarene fjernes helt.
 const empty = await writeMeasurements(again, [], new Map(), null);
 assert.equal((await readMeasureData(empty)).measurements.length, 0);

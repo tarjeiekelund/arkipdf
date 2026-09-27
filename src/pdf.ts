@@ -8,7 +8,7 @@ import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export type { PDFDocumentProxy, PDFPageProxy };
-/** Hvilke lag som vises (f.eks. for å skjule Blads egne mål i visningen). */
+/** Hvilke lag som vises (f.eks. for å skjule våre egne mål i visningen). */
 export type OptionalContent = Awaited<ReturnType<PDFDocumentProxy["getOptionalContentConfig"]>>;
 export { pdfjs };
 

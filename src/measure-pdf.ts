@@ -2,9 +2,10 @@
 //
 // Målene skrives som vanlige PDF-målekommentarer (Line/PolyLine/Polygon med
 // «Measure»), slik Acrobat og Bluebeam også gjør, med ferdig tegnet utseende
-// og tall. De legges i et eget lag, «Mål (Blad)», så de kan slås av og på i
-// andre programmer. Blad skjuler selve laget i sin visning og tegner målene
-// som redigerbare i stedet; dataene leses fra en egen «BladMeasure»-nøkkel.
+// og tall. De legges i et eget lag, «Mål (ArkiPDF)», så de kan slås av og på i
+// andre programmer. ArkiPDF skjuler selve laget i sin visning og tegner målene
+// som redigerbare i stedet; dataene leses fra en egen «BladMeasure»-nøkkel
+// (navnet er fra da appen het Blad, og beholdes så eldre filer kan leses).
 import {
   PDFArray,
   PDFDict,
@@ -37,7 +38,14 @@ import {
 } from "pdf-lib";
 import { centroid, distance, pathLength, readPdfScales, type PdfScaleRegion, type Pt } from "./measure-math.ts";
 
-export const LAYER_NAME = "Mål (Blad)";
+export const LAYER_NAME = "Mål (ArkiPDF)";
+/** Laget het dette før appen fikk navnet ArkiPDF. */
+const OLD_LAYER_NAMES = ["Mål (Blad)"];
+
+/** Om et lag i PDF-en er laget med våre mål (også fra tidligere versjoner). */
+export function isMeasureLayer(name: string | null | undefined): boolean {
+  return name === LAYER_NAME || OLD_LAYER_NAMES.includes(name ?? "");
+}
 const KEY = "BladMeasure";
 const COLOR: [number, number, number] = [0.851, 0.282, 0.059];
 
@@ -80,7 +88,7 @@ function isBladAnnot(dict: PDFDict | undefined): boolean {
   return !!dict && dict.has(PDFName.of(KEY));
 }
 
-/** Leser innebygd målestokk, lagrede Blad-mål og målestokkvalg. */
+/** Leser innebygd målestokk, lagrede mål og målestokkvalg. */
 export async function readMeasureData(bytes: Uint8Array): Promise<MeasureFileData> {
   const scales = await readPdfScales(bytes);
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
@@ -127,7 +135,7 @@ function validScale(s: unknown): ScaleData | null {
   return v && typeof v.metersPerPoint === "number" && v.metersPerPoint > 0 && typeof v.label === "string" ? { metersPerPoint: v.metersPerPoint, label: v.label } : null;
 }
 
-/** Skriver målene inn i PDF-en (erstatter tidligere Blad-mål). */
+/** Skriver målene inn i PDF-en (erstatter mål som er lagret tidligere). */
 export async function writeMeasurements(
   bytes: Uint8Array,
   items: WritableMeasurement[],
@@ -139,7 +147,7 @@ export async function writeMeasurements(
   const ctx = doc.context;
   const pages = doc.getPages();
 
-  // Fjern gamle Blad-mål (og utseendet deres) før de nye legges inn.
+  // Fjern mål som er lagret tidligere (og utseendet deres) før de nye legges inn.
   for (const page of pages) {
     const annots = page.node.Annots();
     if (!annots) continue;
@@ -186,8 +194,8 @@ export async function writeMeasurements(
       Subtype: subtype,
       Rect: [x1, y1, x2, y2],
       Contents: PDFHexString.fromText(m.subText ? `${m.text} (${m.subText})` : m.text),
-      NM: PDFString.of(`blad-mal-${Date.now().toString(36)}-${n}`),
-      T: PDFHexString.fromText("Blad"),
+      NM: PDFString.of(`arkipdf-mal-${Date.now().toString(36)}-${n}`),
+      T: PDFHexString.fromText("ArkiPDF"),
       F: 4,
       C: COLOR,
       BS: { W: 1.5, S: "S" },
@@ -217,7 +225,7 @@ export async function writeMeasurements(
   return doc.save();
 }
 
-/** Finner eller lager laget «Mål (Blad)» og returnerer referansen. */
+/** Finner eller lager laget «Mål (ArkiPDF)» og returnerer referansen. Et lag med det gamle navnet får det nye. */
 function ensureLayer(doc: PDFDocument): PDFRef {
   const ctx = doc.context;
   let props = doc.catalog.lookupMaybe(PDFName.of("OCProperties"), PDFDict);
@@ -233,7 +241,10 @@ function ensureLayer(doc: PDFDocument): PDFRef {
   for (let i = 0; i < ocgs.size(); i++) {
     const ref = ocgs.get(i);
     const g = ocgs.lookupMaybe(i, PDFDict);
-    if (ref instanceof PDFRef && g && textOf(g.lookup(PDFName.of("Name"))) === LAYER_NAME) return ref;
+    if (ref instanceof PDFRef && g && isMeasureLayer(textOf(g.lookup(PDFName.of("Name"))))) {
+      g.set(PDFName.of("Name"), PDFHexString.fromText(LAYER_NAME));
+      return ref;
+    }
   }
   const ref = ctx.register(ctx.obj({ Type: "OCG", Name: PDFHexString.fromText(LAYER_NAME) }));
   ocgs.push(ref);

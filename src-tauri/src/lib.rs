@@ -41,7 +41,7 @@ fn write_file(request: Request<'_>) -> Result<(), String> {
 
 /// PDF-ene programmet ble startet med (dobbeltklikk på en PDF, «Åpne med»,
 /// eller flere markerte filer via «Send til»). Første verdi er `true` når
-/// Blad ble startet med `--merge` for å slå sammen.
+/// ArkiPDF ble startet med `--merge` for å slå sammen.
 #[tauri::command]
 fn startup_files() -> (bool, Vec<String>) {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -60,5 +60,5 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![read_file, write_file, startup_files])
         .run(tauri::generate_context!())
-        .expect("Blad kunne ikke starte");
+        .expect("ArkiPDF kunne ikke starte");
 }

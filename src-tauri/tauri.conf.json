@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Blad",
+  "productName": "ArkiPDF",
   "version": "0.1.0",
   "identifier": "no.blad.pdf",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Blad",
+        "title": "ArkiPDF",
         "width": 1200,
         "height": 850,
         "minWidth": 640,
@@ -37,8 +37,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Enkel og rask PDF-leser",
-    "longDescription": "Blad åpner, viser, presenterer, slår sammen, sorterer og eksporterer PDF-filer.",
+    "shortDescription": "PDF-leser for tegninger",
+    "longDescription": "ArkiPDF er en rask PDF-leser for tegninger: måling med målestokk, sammenslåing av tegningssett, presentasjon, sortering og eksport.",
     "fileAssociations": [
       {
         "ext": [
