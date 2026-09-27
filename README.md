@@ -179,7 +179,7 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.4.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.5.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ### Nye versjoner
