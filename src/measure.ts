@@ -26,7 +26,7 @@ import {
 import { readMeasureData, writeMeasurements, type WritableMeasurement } from "./measure-pdf";
 import type { PDFDocumentProxy } from "./pdf";
 import { SnapIndex, type SnapHit } from "./snap";
-import { button, errorMessage, h, modal, toast } from "./ui";
+import { button, h, modal, toast } from "./ui";
 import type { PageGeometry, Viewer } from "./viewer";
 
 export type MeasureKind = "distance" | "length" | "area";
@@ -194,8 +194,8 @@ export class Measure {
     if (v) this.s.dirty = true;
     else markSaved(this.s);
   }
-  /** Kalles med nye filbytes når målene skal lagres. */
-  onSave: ((bytes: Uint8Array) => Promise<boolean | void>) | null = null;
+  /** Lagrer dokumentet (hovedprogrammet skriver mål og markeringer sammen). */
+  onSave: (() => Promise<unknown>) | null = null;
   private saveBtn: HTMLButtonElement;
 
   private kindButtons: Record<MeasureKind, HTMLButtonElement>;
@@ -350,9 +350,13 @@ export class Measure {
     this.refreshPanel();
   }
 
-  /** Skriver målene inn i PDF-fila. */
+  /** Lagrer dokumentet med målene. */
   async save(): Promise<void> {
-    if (!this.onSave || !this.bytesSource) return;
+    await this.onSave?.();
+  }
+
+  /** Skriver målene inn i PDF-bytes (brukes når dokumentet lagres). */
+  async writeTo(bytes: Uint8Array): Promise<Uint8Array> {
     const items: WritableMeasurement[] = this.s.items.map((m) => {
       const d = this.describe(m);
       const scale = m.fixed ?? this.scaleFor(m.page);
@@ -367,17 +371,8 @@ export class Measure {
         subText: d.sub,
       };
     });
-    try {
-      const out = await writeMeasurements(this.bytesSource(), items, this.s.pageScale, this.s.defaultScale);
-      // `false`: brukeren avbrøt (f.eks. valg av filnavn), målene er fortsatt ulagret.
-      if ((await this.onSave(out)) !== false) this.dirty = false;
-    } catch (e) {
-      toast(`Kunne ikke lagre målene: ${errorMessage(e)}`, "error");
-    }
+    return writeMeasurements(bytes, items, this.s.pageScale, this.s.defaultScale);
   }
-
-  /** Henter gjeldende filbytes (settes av hovedprogrammet). */
-  bytesSource: (() => Uint8Array) | null = null;
 
   toggle(): void {
     if (this.active) this.close();

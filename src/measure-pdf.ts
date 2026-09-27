@@ -79,7 +79,7 @@ export interface WritableMeasurement extends StoredMeasurement {
   subText?: string;
 }
 
-function textOf(obj: unknown): string | null {
+export function textOf(obj: unknown): string | null {
   if (obj instanceof PDFString || obj instanceof PDFHexString) return obj.decodeText();
   return null;
 }
@@ -171,7 +171,7 @@ export async function writeMeasurements(
     }
   }
 
-  const layer = items.length ? ensureLayer(doc) : null;
+  const layer = items.length ? ensureLayer(doc, LAYER_NAME, isMeasureLayer) : null;
   const font = items.length ? await doc.embedFont(StandardFonts.Helvetica) : null;
 
   items.forEach((m, n) => {
@@ -225,8 +225,11 @@ export async function writeMeasurements(
   return doc.save();
 }
 
-/** Finner eller lager laget «Mål (ArkiPDF)» og returnerer referansen. Et lag med det gamle navnet får det nye. */
-function ensureLayer(doc: PDFDocument): PDFRef {
+/**
+ * Finner eller lager et lag (f.eks. «Mål (ArkiPDF)») og returnerer referansen.
+ * Et lag som `isOurs` kjenner igjen under et gammelt navn, får det nye.
+ */
+export function ensureLayer(doc: PDFDocument, name: string, isOurs: (name: string | null) => boolean): PDFRef {
   const ctx = doc.context;
   let props = doc.catalog.lookupMaybe(PDFName.of("OCProperties"), PDFDict);
   if (!props) {
@@ -241,12 +244,12 @@ function ensureLayer(doc: PDFDocument): PDFRef {
   for (let i = 0; i < ocgs.size(); i++) {
     const ref = ocgs.get(i);
     const g = ocgs.lookupMaybe(i, PDFDict);
-    if (ref instanceof PDFRef && g && isMeasureLayer(textOf(g.lookup(PDFName.of("Name"))))) {
-      g.set(PDFName.of("Name"), PDFHexString.fromText(LAYER_NAME));
+    if (ref instanceof PDFRef && g && isOurs(textOf(g.lookup(PDFName.of("Name"))))) {
+      g.set(PDFName.of("Name"), PDFHexString.fromText(name));
       return ref;
     }
   }
-  const ref = ctx.register(ctx.obj({ Type: "OCG", Name: PDFHexString.fromText(LAYER_NAME) }));
+  const ref = ctx.register(ctx.obj({ Type: "OCG", Name: PDFHexString.fromText(name) }));
   ocgs.push(ref);
   let d = props.lookupMaybe(PDFName.of("D"), PDFDict);
   if (!d) {

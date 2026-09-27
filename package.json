@@ -1,7 +1,7 @@
 {
   "name": "blad",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "predev": "node scripts/copy-pdfjs-assets.mjs",
@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "tauri": "tauri",
     "icons": "node scripts/make-icons.mjs",
-    "test": "node --experimental-strip-types scripts/test-edit.mjs && node --experimental-strip-types scripts/test-measure.mjs && node --experimental-strip-types scripts/test-snap.mjs && node --experimental-strip-types scripts/test-measure-pdf.mjs && node --experimental-strip-types scripts/test-compress.mjs && node --experimental-strip-types scripts/test-version.mjs"
+    "test": "node --experimental-strip-types scripts/test-edit.mjs && node --experimental-strip-types scripts/test-measure.mjs && node --experimental-strip-types scripts/test-snap.mjs && node --experimental-strip-types scripts/test-measure-pdf.mjs && node --experimental-strip-types scripts/test-compress.mjs && node --experimental-strip-types scripts/test-version.mjs && node --experimental-strip-types scripts/test-markup.mjs"
   },
   "dependencies": {
     "@fontsource-variable/hanken-grotesk": "^5.3.0",

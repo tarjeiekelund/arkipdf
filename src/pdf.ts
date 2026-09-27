@@ -12,6 +12,21 @@ export type { PDFDocumentProxy, PDFPageProxy };
 export type OptionalContent = Awaited<ReturnType<PDFDocumentProxy["getOptionalContentConfig"]>>;
 export { pdfjs };
 
+/**
+ * Tegning med skjemafelt som egne HTML-felt (se Viewer): feltene tegnes ikke
+ * på lerretet, og avkrysningsbokser o.l. får egne små lerreter i `canvasMap`.
+ */
+export interface FormRender {
+  canvasMap: Map<string, HTMLCanvasElement>;
+}
+
+/** Uten skjemalag tegnes skjemafelt med verdiene som er fylt ut (ikke bare de i fila). */
+function annotationOptions(forms?: FormRender | null) {
+  return forms
+    ? { annotationMode: pdfjs.AnnotationMode.ENABLE_FORMS, annotationCanvasMap: forms.canvasMap }
+    : { annotationMode: pdfjs.AnnotationMode.ENABLE_STORAGE };
+}
+
 /** Største antall piksler et lerret får ha (unngår minnesprekk ved kraftig zoom). */
 export const MAX_CANVAS_PIXELS = 16_777_216;
 
@@ -42,6 +57,7 @@ export async function renderPageToCanvas(
   rotation = 0,
   maxPixels = MAX_CANVAS_PIXELS,
   layers?: OptionalContent | null,
+  forms?: FormRender | null,
 ): Promise<{ cancel: () => void; done: Promise<void> }> {
   const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
   let ratio = pixelRatio;
@@ -57,6 +73,7 @@ export async function renderPageToCanvas(
     transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined,
     background: "#ffffff",
     optionalContentConfigPromise: layers ? Promise.resolve(layers) : undefined,
+    ...annotationOptions(forms),
   });
   return {
     cancel: () => task.cancel(),
@@ -83,6 +100,7 @@ export async function renderRegion(
   pixelRatio: number,
   maxPixels = MAX_CANVAS_PIXELS,
   layers?: OptionalContent | null,
+  forms?: FormRender | null,
 ): Promise<{ cancel: () => void; done: Promise<void> }> {
   const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
   let ratio = pixelRatio;
@@ -95,6 +113,7 @@ export async function renderRegion(
     transform: [ratio, 0, 0, ratio, -region.x * ratio, -region.y * ratio],
     background: "#ffffff",
     optionalContentConfigPromise: layers ? Promise.resolve(layers) : undefined,
+    ...annotationOptions(forms),
   });
   return {
     cancel: () => task.cancel(),
