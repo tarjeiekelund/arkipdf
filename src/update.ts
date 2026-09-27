@@ -6,7 +6,7 @@ import { isTauri, openUrl } from "./platform";
 import { button, h } from "./ui";
 import { compareVersions } from "./version";
 
-const REPO = "tarjeiekelund/blad";
+const REPO = "tarjeiekelund/arkipdf";
 const DAY = 24 * 60 * 60 * 1000;
 
 export interface Release {
