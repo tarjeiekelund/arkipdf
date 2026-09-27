@@ -1073,6 +1073,42 @@ legend {
   cursor: pointer;
 }
 
+.shrink {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.shrink p {
+  margin: 0;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice input {
+  margin-top: 3px;
+}
+
+.choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .field {
   display: flex;
   flex-direction: column;

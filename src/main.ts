@@ -25,6 +25,7 @@ import {
 } from "./platform";
 import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
+import { openShrinkDialog } from "./shrink";
 import { Search } from "./search";
 import { busy, button, errorMessage, h, icon, logo, modal, toast } from "./ui";
 import { CSS_UNITS, Viewer, type Tool, type ZoomMode } from "./viewer";
@@ -154,7 +155,7 @@ function updateDocBar(): void {
   barTitle.textContent = t.unsaved ? "Ikke lagret" : "Endret";
   barHint.textContent = t.unsaved
     ? "Se over det sammenslåtte dokumentet. Dra sidene i sidepanelet for å endre rekkefølgen før du lagrer."
-    : "Sidene er endret. Endringene skrives til fila først når du lagrer. Ctrl+Z angrer.";
+    : "Dokumentet er endret. Endringene skrives til fila først når du lagrer. Ctrl+Z angrer.";
   barDiscard.title = t.unsaved ? "Lukk uten å lagre" : "Forkast endringene og last fila på nytt";
   barSaveAs.hidden = t.unsaved;
   barSave.querySelector("span")!.textContent = t.unsaved ? "Lagre…" : "Lagre";
@@ -172,6 +173,7 @@ const toolbar = h(
   docBtn(button("Sorter sider", "organize", () => startOrganize(), { title: "Endre rekkefølge, roter eller slett sider (Ctrl+K)" })),
   docBtn(button("Til PNG", "image", () => startExport(), { title: "Eksporter sider som PNG-bilder (Ctrl+E)" })),
   docBtn(button("Skriv ut", "print", () => startPrint(), { title: "Skriv ut (Ctrl+P)" })),
+  docBtn(button("Reduser", "shrink", () => startShrink(), { title: "Reduser filstørrelse: skaler ned bilder og fjern duplikater" })),
   measureBtn,
   h("span", { class: "spacer" }),
   viewControls,
@@ -907,18 +909,11 @@ async function changePages(items: PageItem[], focus: number, select: number[] = 
   const b = busy("Oppdaterer sidene…");
   try {
     const out = await rearrangePages(tab.bytes, items, tab.name);
-    const doc = await loadPdf(out);
-    tab.pageHistory.push({ bytes: tab.bytes, measure: tab.measure ? copyMeasureDoc(tab.measure) : null, modified: tab.modified });
-    if (tab.pageHistory.length > 30) tab.pageHistory.shift();
-    if (tab.measure) reorderMeasureDoc(tab.measure, items.map((it) => it.src), doc);
-    const old = swapDoc(tab, out, doc, focus);
-    tab.modified = !tab.unsaved;
+    await replaceContent(tab, out, items.map((it) => it.src), focus);
     thumbSel = new Set(select);
     thumbAnchor = select[0] ?? -1;
     organizer = null;
     showCurrent();
-    void updateTitle();
-    void old.loadingTask.destroy();
     return true;
   } catch (e) {
     toast(`Kunne ikke endre sidene: ${errorMessage(e)}`, "error");
@@ -926,6 +921,34 @@ async function changePages(items: PageItem[], focus: number, select: number[] = 
   } finally {
     b.done();
   }
+}
+
+/**
+ * Gir fanen nytt innhold i minnet (kan angres med Ctrl+Z). `order` er den
+ * opprinnelige indeksen til hver side i det nye dokumentet; målene følger med.
+ */
+async function replaceContent(tab: OpenDoc, bytes: Uint8Array, order: number[], focus: number): Promise<void> {
+  const doc = await loadPdf(bytes);
+  tab.pageHistory.push({ bytes: tab.bytes, measure: tab.measure ? copyMeasureDoc(tab.measure) : null, modified: tab.modified });
+  if (tab.pageHistory.length > 30) tab.pageHistory.shift();
+  if (tab.measure) reorderMeasureDoc(tab.measure, order, doc);
+  const old = swapDoc(tab, bytes, doc, focus);
+  tab.modified = !tab.unsaved;
+  void updateTitle();
+  void old.loadingTask.destroy();
+}
+
+/** «Reduser filstørrelse»: resultatet vises før det lagres, som andre endringer. */
+function startShrink(): void {
+  const tab = current;
+  if (!tab) return;
+  openShrinkDialog(tab.bytes, tab.name, async (out) => {
+    if (current !== tab) return;
+    const n = tab.doc.numPages;
+    await replaceContent(tab, out, Array.from({ length: n }, (_, i) => i), viewer.current);
+    thumbSel.clear();
+    showCurrent();
+  });
 }
 
 /** Angrer siste sideendring. */
