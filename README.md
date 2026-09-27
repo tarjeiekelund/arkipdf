@@ -118,7 +118,7 @@ Installeren bygges automatisk av GitHub Actions
 
 1. Gå til **Actions → «Windows-bygg»** i GitHub og åpne siste kjøring.
 2. Last ned artefakten **ArkiPDF-installer** og pakk ut zip-fila.
-3. Kjør `ArkiPDF_0.1.0_x64-setup.exe`. Den installeres for din bruker, uten
+3. Kjør `ArkiPDF_0.2.0_x64-setup.exe`. Den installeres for din bruker, uten
    administratorrettigheter, og registrerer seg som et program som kan åpne
    PDF-filer.
 
@@ -129,7 +129,7 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.1.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.2.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ## Teknikk
