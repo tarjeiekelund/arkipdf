@@ -17,6 +17,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Slå sammen flere PDF-er | **Ctrl+M**. Velg filer og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Resultatet åpnes i en ny fane. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
 | Endre rekkefølge på sider | Dra miniatyrene i sidepanelet dit du vil ha dem. Ctrl-klikk og Shift-klikk velger flere sider, som dras samlet. **Delete** sletter valgte sider, og **Ctrl+Z** angrer. Endringene gjelder med én gang, men skrives til fila først når du lagrer: fanen får en prikk, og stripa over dokumentet har **Lagre** (Ctrl+S), **Lagre som…** (Ctrl+Shift+S) og **Forkast**. Mål følger sidene sine |
 | Sortere i rutenett | **Ctrl+K** («Sorter sider») viser alle sidene i et rutenett med store miniatyrer, der du også kan rotere (Ctrl+R). **Bruk** tar endringene i bruk og går tilbake til vanlig visning; de lagres som over |
+| Redusere filstørrelsen | Knappen **Reduser**. **Skjerm og e-post** skalerer bildene ned til 150 dpi slik de står på arket; **Utskrift** til 300 dpi. Linjer, tekst og mål er vektorer og røres ikke. Like bilder og fonter (vanlig i sammenslåtte sett) lagres bare én gang, og ubrukte objekter fjernes. Resultatet vises før det lagres, og Ctrl+Z angrer |
 | Eksportere til PNG | **Ctrl+E**. Alle sider, gjeldende side eller et utvalg («1-3, 7»), i 96–600 DPI |
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
@@ -115,14 +116,16 @@ Tekst i PDF-en kan markeres og kopieres. Passordbeskyttede PDF-er kan åpnes
 
 ## Installere på Windows
 
-Installeren bygges automatisk av GitHub Actions
-(`.github/workflows/windows.yml`):
+1. Last ned `ArkiPDF_…_x64-setup.exe` fra siste release:
+   **https://github.com/tarjeiekelund/arkipdf/releases/latest**
+2. Kjør den. Den installeres for din bruker, uten administratorrettigheter,
+   og registrerer seg som et program som kan åpne PDF-filer. Windows kan
+   advare fordi installeren ikke er signert: velg «Mer informasjon» →
+   «Kjør likevel».
 
-1. Gå til **Actions → «Windows-bygg»** i GitHub og åpne siste kjøring.
-2. Last ned artefakten **ArkiPDF-installer** og pakk ut zip-fila.
-3. Kjør `ArkiPDF_0.3.0_x64-setup.exe`. Den installeres for din bruker, uten
-   administratorrettigheter, og registrerer seg som et program som kan åpne
-   PDF-filer.
+Installeren bygges av GitHub Actions (`.github/workflows/windows.yml`). Hver
+PR får også et testbygg under **Actions → «Windows-bygg»** (artefakten
+**ArkiPDF-installer**).
 
 Vil du gjøre ArkiPDF til standardprogram for PDF: høyreklikk en PDF →
 *Åpne med* → *Velg en annen app* → **ArkiPDF** → *Alltid*.
@@ -131,8 +134,16 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.3.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.4.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
+
+### Nye versjoner
+
+ArkiPDF sjekker én gang i døgnet om det finnes en nyere release på GitHub.
+Da vises en melding nede til høyre med **Last ned** (henter installeren),
+**Hva er nytt?** (åpner release-siden) og **Hopp over** (ikke spør om denne
+versjonen igjen). Installeren kjøres over den gamle versjonen. Sjekken krever
+at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 
 ## Teknikk
 
@@ -162,6 +173,9 @@ lagt ut som en GitHub-release.
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»
 │   ├── merge.ts     «Slå sammen»
+│   ├── compress.ts  reduksjon av filstørrelse (bilder, duplikater)
+│   ├── shrink.ts    dialogen «Reduser filstørrelse»
+│   ├── update.ts    varsel om nye versjoner
 │   ├── exportpng.ts eksport til PNG
 │   ├── search.ts    tekstsøk med markering av treff
 │   ├── print.ts     utskrift
