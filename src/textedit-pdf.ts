@@ -26,6 +26,7 @@ import {
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
+import { collectGarbage } from "./compress.ts";
 import type { Pt } from "./measure-math.ts";
 
 /** En tekstlinje slik pdf.js fant den (PDF-koordinater, uten sidens /Rotate). */
@@ -56,8 +57,8 @@ export interface EditResult {
 export type FontLoader = (baseFont: string) => Promise<Uint8Array | null>;
 
 const N = (s: string) => PDFName.of(s);
-type Matrix = [number, number, number, number, number, number];
-const mul = (m: Matrix, n: Matrix): Matrix => [
+export type Matrix = [number, number, number, number, number, number];
+export const mul = (m: Matrix, n: Matrix): Matrix => [
   m[0] * n[0] + m[1] * n[2],
   m[0] * n[1] + m[1] * n[3],
   m[2] * n[0] + m[3] * n[2],
@@ -65,12 +66,12 @@ const mul = (m: Matrix, n: Matrix): Matrix => [
   m[4] * n[0] + m[5] * n[2] + n[4],
   m[4] * n[1] + m[5] * n[3] + n[5],
 ];
-const apply = (m: Matrix, x: number, y: number): Pt => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+export const apply = (m: Matrix, x: number, y: number): Pt => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+export const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
 // ---------- Innholdsstrømmer med posisjoner ----------
 
-type Tok =
+export type Tok =
   | { t: "num"; v: number; s: number; e: number }
   | { t: "name"; v: string; s: number; e: number }
   | { t: "str"; v: Uint8Array; s: number; e: number }
@@ -232,7 +233,7 @@ export function parseContent(data: Uint8Array): Op[] {
 
 // ---------- Fonter og tekstbredde ----------
 
-interface FontInfo {
+export interface FontInfo {
   baseFont: string;
   twoByte: boolean;
   /** Bredde i tekstrom-enheter (1 = skriftstørrelsen) for en kode. */
@@ -243,7 +244,7 @@ function num(v: unknown): number {
   return v instanceof PDFNumber ? v.asNumber() : 0;
 }
 
-function fontInfo(dict: PDFDict): FontInfo {
+export function fontInfo(dict: PDFDict): FontInfo {
   const sub = dict.get(N("Subtype"))?.toString();
   const baseFont = (dict.lookup(N("BaseFont")) as PDFName | undefined)?.decodeText?.() ?? "";
   if (sub === "/Type0") {
@@ -331,7 +332,7 @@ export function onLine(line: TextLine, a: Pt, b: Pt): boolean {
 }
 
 /** Lagene (OCG) som er slått av i dokumentets standardvisning. */
-function hiddenGroups(doc: PDFDocument): Set<string> {
+export function hiddenGroups(doc: PDFDocument): Set<string> {
   const out = new Set<string>();
   const props = doc.catalog.lookupMaybe(N("OCProperties"), PDFDict);
   const d = props?.lookupMaybe(N("D"), PDFDict);
@@ -345,7 +346,7 @@ function hiddenGroups(doc: PDFDocument): Set<string> {
 }
 
 /** Om et lag (OCG) eller en lagregel (OCMD) er synlig. */
-function groupVisible(ctx: PDFDocument["context"], obj: unknown, hidden: Set<string>): boolean {
+export function groupVisible(ctx: PDFDocument["context"], obj: unknown, hidden: Set<string>): boolean {
   if (!(obj instanceof PDFRef)) return true;
   const d = ctx.lookup(obj);
   if (!(d instanceof PDFDict)) return true;
@@ -368,7 +369,7 @@ interface StreamResult {
   resources: PDFDict | null;
 }
 
-function toRgb(args: Tok[]): [number, number, number] | null {
+export function toRgb(args: Tok[]): [number, number, number] | null {
   const v = args.filter((a) => a.t === "num").map((a) => (a as { v: number }).v);
   if (v.length === 1) return [v[0], v[0], v[0]];
   if (v.length === 3) return [v[0], v[1], v[2]];
@@ -377,7 +378,7 @@ function toRgb(args: Tok[]): [number, number, number] | null {
 }
 
 /** Skriver et tall kompakt for innholdsstrømmen. */
-const fmt = (x: number) => (Math.abs(x) < 1e-6 ? "0" : String(Math.round(x * 1000) / 1000));
+export const fmt = (x: number) => (Math.abs(x) < 1e-6 ? "0" : String(Math.round(x * 1000) / 1000));
 
 function processStream(data: Uint8Array, resources: PDFDict | undefined, start: State, hiddenStart: boolean, w: Walk, depth: number): StreamResult {
   const { doc, line, found } = w;
@@ -593,7 +594,7 @@ function processStream(data: Uint8Array, resources: PDFDict | undefined, start: 
   return { edits, removed, resources: resCopied ? res! : null };
 }
 
-function applyEdits(data: Uint8Array, edits: StreamResult["edits"]): Uint8Array {
+export function applyEdits(data: Uint8Array, edits: Array<{ start: number; end: number; text: string }>): Uint8Array {
   const parts: Uint8Array[] = [];
   let pos = 0;
   const enc = new TextEncoder();
@@ -611,7 +612,7 @@ function applyEdits(data: Uint8Array, edits: StreamResult["edits"]): Uint8Array 
   return out;
 }
 
-function pageContent(page: PDFPage): Uint8Array | null {
+export function pageContent(page: PDFPage): Uint8Array | null {
   const ctx = page.doc.context;
   const contents = page.node.Contents();
   const list = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
@@ -716,6 +717,8 @@ export async function replaceLine(bytes: Uint8Array, line: TextLine, text: strin
     }
     page.drawText(text, { x: at[0], y: at[1], size, font, color: rgb(...(color.map((c) => Math.min(1, Math.max(0, c))) as [number, number, number])), rotate: degrees(angle) });
   }
+  // Den gamle innholdsstrømmen (med den gamle teksten) skal ikke bli liggende i fila.
+  collectGarbage(ctx);
   return { bytes: await doc.save(), removed, font: usedFont, originalFont };
 }
 

@@ -4,6 +4,7 @@ import { flattenForm, IMAGE_FILE, imagesToPdf, isSigned, rearrangePages, type Pa
 import { fontFiles } from "./fonts";
 import { normalizeImage } from "./images";
 import { openExportDialog } from "./exportpng";
+import { browserCodec } from "./compress";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
@@ -33,6 +34,8 @@ import { Presentation } from "./present";
 import { openPrintDialog } from "./print";
 import { openShrinkDialog } from "./shrink";
 import { checkForUpdates } from "./update";
+import { Redactor } from "./redact";
+import { redactPdf, type RedactArea } from "./redact-pdf";
 import { Search } from "./search";
 import { TextEditor } from "./textedit";
 import { loadForRuns, replaceLine, textRuns, type TextLine } from "./textedit-pdf";
@@ -95,6 +98,7 @@ const search = new Search(viewer);
 const measure = new Measure(viewer);
 const markup = new Markup(viewer);
 const textEdit = new TextEditor(viewer);
+const redactor = new Redactor(viewer);
 const app = document.getElementById("app")!;
 
 const pageInput = h("input", { type: "text", class: "page-input", inputmode: "numeric", "aria-label": "Sidenummer", title: "Gå til side (Ctrl+G)" });
@@ -133,6 +137,9 @@ const textEditBtn = docBtn(button("Rediger", "editText", () => toggleTextEdit(),
 measure.onChange = () => refresh();
 markup.onChange = () => refresh();
 textEdit.onChange = () => refresh();
+redactor.onChange = () => refresh();
+redactor.onApply = (areas) => applyRedaction(areas);
+const redactBtn = docBtn(button("Sladd", "redact", () => toggleRedact(), { title: "Sladd: fjern tekst, bilder og annet for godt", className: "keep-label" }));
 textEdit.onEdit = (line, text) => applyTextEdit(line, text);
 // Tekstkommandoene leses med pdf-lib fra fanens bytes (én gang per versjon av dokumentet).
 let runsDoc: { bytes: Uint8Array; doc: ReturnType<typeof loadForRuns> } | null = null;
@@ -147,21 +154,63 @@ markup.onSave = () => saveAnnotations();
 
 /** Måling, markering og tekstredigering er hver sin modus; bare én er på om gangen. */
 function toggleMeasure(): void {
-  markup.close();
-  textEdit.close();
+  closeModes(measure);
   measure.toggle();
 }
 
 function toggleMarkup(): void {
-  measure.close();
-  textEdit.close();
+  closeModes(markup);
   markup.toggle();
 }
 
 function toggleTextEdit(): void {
-  measure.close();
-  markup.close();
+  closeModes(textEdit);
   textEdit.toggle();
+}
+
+function toggleRedact(): void {
+  closeModes(redactor);
+  redactor.toggle();
+}
+
+/** Lukker de andre verktøyene (bare ett er på om gangen). */
+function closeModes(keep?: { close(): void }): void {
+  for (const m of [measure, markup, textEdit, redactor]) if (m !== keep) m.close();
+}
+
+/**
+ * Sladder områdene: innholdet under fjernes fra dokumentet (i minnet, så
+ * Ctrl+Z angrer til man lagrer). Mål og markeringer i områdene fjernes også.
+ */
+async function applyRedaction(areas: RedactArea[]): Promise<boolean> {
+  const tab = current;
+  if (!tab) return false;
+  const n = areas.length;
+  const ok = await confirmDialog(
+    `Sladde ${n} ${n === 1 ? "område" : "områder"}?\n\nAlt under områdene – tekst, bilder, figurer og kommentarer – fjernes fra dokumentet og dekkes med svart. Du kan angre med Ctrl+Z til du lagrer; etter at fila er lagret, kan innholdet ikke hentes tilbake.\n\nTips: bruk «Lagre som…», så beholder du originalen.`,
+  );
+  if (!ok || current !== tab) return false;
+  const b = busy("Sladder…");
+  try {
+    await bakeForms(tab);
+    const { bytes, stats } = await redactPdf(tab.bytes, areas, browserCodec);
+    if (current !== tab) return false;
+    await replaceContent(tab, bytes, Array.from({ length: tab.doc.numPages }, (_, i) => i), viewer.current);
+    const own = measure.removeInAreas(areas) + markup.removeInAreas(areas);
+    showCurrent();
+    const parts: string[] = [];
+    if (stats.glyphs) parts.push(`${stats.glyphs} tegn fjernet`);
+    if (stats.images) parts.push(`${stats.images} ${stats.images === 1 ? "bilde" : "bilder"} svertet`);
+    if (stats.paths) parts.push(`${stats.paths} ${stats.paths === 1 ? "figur" : "figurer"} fjernet`);
+    if (stats.annotations + own) parts.push(`${stats.annotations + own} ${stats.annotations + own === 1 ? "kommentar" : "kommentarer"} fjernet`);
+    toast(`Sladdet${parts.length ? `: ${parts.join(", ")}` : ""}. Lagre med «Lagre som…» for å beholde originalen. Ctrl+Z angrer.`, "success");
+    return true;
+  } catch (e) {
+    toast(`Kunne ikke sladde: ${errorMessage(e)}`, "error");
+    return false;
+  } finally {
+    b.done();
+  }
 }
 
 /** Finner Windows-fonten for en font i PDF-en (se fonts.ts). */
@@ -276,6 +325,7 @@ const toolbar = h(
   measureBtn,
   markupBtn,
   textEditBtn,
+  redactBtn,
   h("span", { class: "spacer" }),
   viewControls,
   h("span", { class: "split" }, presentBtn, screenBtn),
@@ -436,6 +486,7 @@ function refresh(): void {
   measureBtn.classList.toggle("active", measure.active);
   markupBtn.classList.toggle("active", markup.active);
   textEditBtn.classList.toggle("active", textEdit.active);
+  redactBtn.classList.toggle("active", redactor.active);
   updateDocBar();
   renderTabs();
   if (hasDoc) {
@@ -868,6 +919,8 @@ async function closeTab(tab: OpenDoc): Promise<void> {
       markup.setDocument(null);
       textEdit.close();
       textEdit.setDocument(null);
+      redactor.close();
+      redactor.setDocument(null);
       search.setDocument(null);
       void viewer.setDocument(null);
     }
@@ -931,7 +984,7 @@ function showCurrent(): void {
     refresh();
     return;
   }
-  content.replaceChildren(unsavedBar, measure.bar, markup.bar, textEdit.bar, viewer.el, search.el, measure.panel, markup.panel);
+  content.replaceChildren(unsavedBar, measure.bar, markup.bar, textEdit.bar, redactor.bar, viewer.el, search.el, measure.panel, markup.panel);
   if (viewer.document !== current.doc) {
     const tab = current;
     search.setDocument(tab.doc);
@@ -943,6 +996,7 @@ function showCurrent(): void {
       tab.measure = measure.state;
     }
     textEdit.setDocument(tab.doc);
+    redactor.setDocument(tab.doc);
     if (tab.markup) markup.useDocument(tab.markup);
     else {
       markup.close();
@@ -1044,9 +1098,7 @@ function startOrganize(): void {
     },
   }, true);
   if (search.isOpen) search.close();
-  measure.close();
-  markup.close();
-  textEdit.close();
+  closeModes();
   content.replaceChildren(organizer.el);
   refresh();
   (organizer.el.querySelector(".grid") as HTMLElement).focus();
@@ -1374,6 +1426,10 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (textEdit.active && current && !typing(e.target) && textEdit.handleKey(e)) {
+    e.preventDefault();
+    return;
+  }
+  if (redactor.active && current && !typing(e.target) && redactor.handleKey(e)) {
     e.preventDefault();
     return;
   }

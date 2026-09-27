@@ -79,6 +79,18 @@ const t2 = find(ls, "A-102");
 assert.ok(t2 && Math.abs(t2.origin[0] - 50) < 0.5 && Math.abs(t2.origin[1] - 700) < 0.5, "ny tekst på samme sted");
 assert.ok(Math.abs(t2.size - 12) < 0.1);
 
+// Den gamle innholdsstrømmen (med den gamle teksten) er fjernet fra fila, ikke bare frakoblet.
+{
+  const before = await PDFDocument.load(base);
+  const after = await PDFDocument.load(r1.bytes);
+  const c = before.getPage(0).node.Contents();
+  const refs = (c.asArray ? c.asArray() : [c]).filter((x) => x.objectNumber !== undefined);
+  const oldRefs = before.getPage(0).node.get(PDFName.of("Contents"));
+  const list = oldRefs.asArray ? oldRefs.asArray() : [oldRefs];
+  assert.ok(list.length > 0 && refs);
+  for (const ref of list) assert.equal(after.context.lookup(ref), undefined, `gammel strøm ${ref} ligger igjen`);
+}
+
 // 2) «Rom» byttes; «Areal» i samme blokk står der den stod.
 ls = await lines(base, 0);
 const arealBefore = find(ls, "Areal");

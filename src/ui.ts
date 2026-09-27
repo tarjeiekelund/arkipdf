@@ -35,6 +35,7 @@ const paths: Record<string, string> = {
   arrow: '<path d="M5 19 19 5"/><path d="M10 5h9v9"/>',
   text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
   editText: '<path d="M4 7V5h11v2M9.5 5v14M7 19h5"/><path d="m14 19 6-6 1.5 1.5-6 6H14z"/>',
+  redact: '<path d="M4 6h16M4 18h10"/><rect x="4" y="10" width="16" height="4" rx="0.5" fill="currentColor"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
 };
 

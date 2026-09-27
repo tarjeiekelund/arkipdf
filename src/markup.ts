@@ -12,6 +12,7 @@ import {
   cloudCurves,
   lineWidth,
   readMarkups,
+  textCorners,
   textLayout,
   toTextLocal,
   writeMarkups,
@@ -577,6 +578,29 @@ export class Markup {
       }
     }
     return null;
+  }
+
+  /** Fjerner markeringer som berører sladdede områder (de ville ellers blitt skrevet til fila igjen). */
+  removeInAreas(areas: Array<{ page: number; rect: [number, number, number, number] }>): number {
+    const box = (m: Item): Pt[] => (m.kind === "text" ? textCorners(m.points[0], m.rot, this.layout(m).w, this.layout(m).h) : m.points);
+    const hit = (m: Item) =>
+      areas.some((a) => {
+        if (a.page !== m.page) return false;
+        const pts = box(m);
+        const x0 = Math.min(...pts.map((p) => p[0]));
+        const x1 = Math.max(...pts.map((p) => p[0]));
+        const y0 = Math.min(...pts.map((p) => p[1]));
+        const y1 = Math.max(...pts.map((p) => p[1]));
+        return x0 < a.rect[2] && x1 > a.rect[0] && y0 < a.rect[3] && y1 > a.rect[1];
+      });
+    const gone = this.s.items.filter(hit);
+    if (!gone.length) return 0;
+    const pages = new Set(gone.map((m) => m.page));
+    this.s.items = this.s.items.filter((m) => !hit(m));
+    if (!this.s.items.some((m) => m.id === this.s.selected)) this.s.selected = null;
+    for (const p of pages) this.redraw(p);
+    this.markDirty();
+    return gone.length;
   }
 
   private handlePoints(m: Item): Pt[] {

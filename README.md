@@ -24,6 +24,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 | Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
 | Redigere tekst | **E** (knappen **Rediger**). Se [Redigere tekst](#redigere-tekst) |
+| Sladde | Knappen **Sladd**. Innholdet fjernes fra fila for godt. Se [Sladding](#sladding) |
 | Word, Excel og PowerPoint til PDF | Åpne eller dra inn dokumentet (også i **Slå sammen**). Office på PC-en gjør det om i bakgrunnen, uten å vise vinduer; finnes ikke Office, brukes LibreOffice hvis det er installert. Resultatet vises før det lagres |
 | Fylle ut skjemaer | Klikk i feltene og skriv. Se [Skjemaer](#skjemaer) |
 
@@ -130,6 +131,24 @@ et navn eller en linje i et tittelfelt.
 - Begrensninger: én linje om gangen, og teksten flyter ikke om til nye linjer.
   Tekst som er tegnet som streker (vanlig i CAD-eksport), er ikke tekst og kan
   ikke redigeres.
+
+### Sladding
+
+Trykk **Sladd**, og merk det som skal bort: dra opp områder, eller skriv en
+tekst (f.eks. et beløp) i søkefeltet og trykk **Merk treff** for å merke alle
+steder den står. Se over merkingene (klikk en og trykk Delete for å fjerne den),
+og trykk **Sladd**.
+
+- Alt under områdene fjernes fra selve fila, ikke bare dekket over: tekst tegn
+  for tegn (også usynlig tekst, f.eks. fra OCR), pikslene i bilder, figurer som
+  ligger helt inne i et område, og kommentarer og skjemafelt som berører det.
+  Områdene dekkes med svart.
+- Skjulte kopier fjernes også: miniatyrbilder av sidene, Illustrator-data og
+  alt i fila som ikke lenger brukes.
+- Ctrl+Z angrer til du lagrer. Bruk **Lagre som…**, så beholder du originalen.
+- Figurer som bare delvis ligger i et område, blir stående under den svarte
+  boksen. Tekst som er tegnet som streker (vanlig i CAD-eksport), er figurer:
+  merk hele teksten, så fjernes den. Bokmerker og filnavn endres ikke.
 
 ### Skjemaer
 
@@ -259,6 +278,8 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── textedit.ts  «Rediger tekst»: velg og skriv om en tekstlinje
 │   ├── textedit-pdf.ts tolking av innholdsstrømmer og utskifting av tekst
 │   ├── fonts.ts     fra fontnavn i PDF-en til fontfil i Windows
+│   ├── redact.ts    «Sladd»: merking av områder og søk
+│   ├── redact-pdf.ts fjerning av tekst, bilder, figurer og kommentarer i områdene
 │   └── platform.ts  fil- og vindusfunksjoner (Tauri, med nettleser-reserve)
 ├── branding/        grafisk profil (BRAND.md) og kildefiler for ikonet
 └── src-tauri/       Rust-skallet (lesing/skriving av filer, installer-oppsett)
