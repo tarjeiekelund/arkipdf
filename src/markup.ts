@@ -1,4 +1,6 @@
 // Markering (K): revisjonssky, pil og tekst på tegningene, og signatur.
+// Markert, understreket og gjennomstreket tekst lages fra høyreklikkmenyen
+// (se textmenu.ts), men lagres og angres her sammen med de andre.
 //
 // Punktene lagres i PDF-koordinater, så markeringene ligger fast på tegningen
 // uansett zoom og rotasjon. Størrelsen (strek, buer, skrift) følger arket, så
@@ -12,11 +14,15 @@ import {
   cloudBulge,
   cloudCurves,
   displayRect,
+  highlightCss,
+  isTextMarkup,
   lineWidth,
+  quadsOf,
   readMarkups,
   rectAround,
   textCorners,
   textLayout,
+  textLine,
   toTextLocal,
   writeMarkups,
   type MarkupColor,
@@ -24,6 +30,7 @@ import {
   type SignatureImage,
   type StoredMarkup,
   type TextLayout,
+  type TextMarkupKind,
 } from "./markup-pdf";
 import { editSignature, loadSignature, signatureUrl } from "./signature";
 import { button, h } from "./ui";
@@ -41,18 +48,20 @@ export interface MarkupDoc {
   dirty: boolean;
   /** Slik markeringene var sist de ble lest fra eller lagret i fila. */
   saved: Item[];
+  /** Lengden på historikken etter hver tekstmarkering fra høyreklikkmenyen (se `undoQuick`). */
+  quick: number[];
 }
 
 const clone = (items: Item[]): Item[] => items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) }));
 const signature = (items: Item[]) => JSON.stringify(items.map((m) => [m.page, m.kind, m.points, m.color, m.u, m.text ?? "", m.rot ?? 0, m.img?.a ?? ""]));
 
 function newMarkupDoc(): MarkupDoc {
-  return { items: [], selected: null, history: [], dirty: false, saved: [] };
+  return { items: [], selected: null, history: [], dirty: false, saved: [], quick: [] };
 }
 
 /** Kopi (for å kunne angre en endring av sidene). */
 export function copyMarkupDoc(st: MarkupDoc): MarkupDoc {
-  return { ...st, items: clone(st.items), saved: clone(st.saved), history: [] };
+  return { ...st, items: clone(st.items), saved: clone(st.saved), history: [], quick: [] };
 }
 
 /** Sidene har fått ny rekkefølge: `order[i]` er den gamle indeksen til ny side `i`. */
@@ -63,19 +72,33 @@ export function reorderMarkupDoc(st: MarkupDoc, order: number[]): void {
   st.saved = move(st.saved);
   if (!st.items.some((m) => m.id === st.selected)) st.selected = null;
   st.history = [];
+  st.quick = [];
 }
 
 interface Layer {
   el: HTMLDivElement;
   svg: SVGSVGElement;
+  /** Markert tekst, i eget lag som blandes med siden («multipliser»), så teksten synes gjennom. */
+  hlEl: HTMLDivElement;
+  hl: SVGSVGElement;
   handles: HTMLDivElement;
   geom: PageGeometry;
 }
 
 const SVG = "http://www.w3.org/2000/svg";
 const FONT = "Helvetica, Arial, sans-serif";
-const TOOL_NAMES: Record<MarkupKind, string> = { cloud: "Sky", arrow: "Pil", text: "Tekst", sign: "Signatur" };
-const TOOL_KEYS: Record<MarkupKind, string> = { cloud: "S", arrow: "P", text: "T", sign: "N" };
+type Tool = "cloud" | "arrow" | "text" | "sign";
+type Swatch = "red" | "blue" | "black";
+const TOOL_NAMES: Record<MarkupKind, string> = {
+  cloud: "Sky",
+  arrow: "Pil",
+  text: "Tekst",
+  sign: "Signatur",
+  highlight: "Markert",
+  underline: "Understreket",
+  strike: "Gjennomstreket",
+};
+const TOOL_KEYS: Record<Tool, string> = { cloud: "S", arrow: "P", text: "T", sign: "N" };
 /** Signaturens bredde når den settes inn: 50 mm, som en vanlig håndskrevet signatur. */
 const SIGN_WIDTH = (50 / 25.4) * 72;
 
@@ -118,7 +141,7 @@ export class Markup {
   private list: HTMLOListElement;
   private count: HTMLSpanElement;
   active = false;
-  private tool: MarkupKind = "cloud";
+  private tool: Tool = "cloud";
   /** Fargen til markeringer, og blekkfargen til signaturer (huskes hver for seg). */
   private colors: { markup: MarkupColor; sign: MarkupColor } = {
     markup: (store.get("markupColor") as MarkupColor) in COLORS ? (store.get("markupColor") as MarkupColor) : "red",
@@ -136,8 +159,8 @@ export class Markup {
   private pendingClick: { page: number; p: Pt; x: number; y: number } | null = null;
   private editor: { el: HTMLTextAreaElement; page: number; id: number | null; anchor: Pt; u: number; rot: number; done: boolean } | null = null;
 
-  private toolButtons: Record<MarkupKind, HTMLButtonElement>;
-  private swatches: Record<MarkupColor, HTMLButtonElement>;
+  private toolButtons: Record<Tool, HTMLButtonElement>;
+  private swatches: Record<Swatch, HTMLButtonElement>;
   private hint: HTMLSpanElement;
   private saveBtn: HTMLButtonElement;
   private changeSignBtn: HTMLButtonElement;
@@ -150,10 +173,10 @@ export class Markup {
   onSaveLocked: (() => Promise<unknown>) | null = null;
 
   constructor(private readonly viewer: Viewer) {
-    const toolBtn = (k: MarkupKind, iconName: string) =>
+    const toolBtn = (k: Tool, iconName: string) =>
       button(TOOL_NAMES[k], iconName, () => this.setTool(k), { title: `${TOOL_NAMES[k]} (${TOOL_KEYS[k]})`, className: "ghost tool" });
     this.toolButtons = { cloud: toolBtn("cloud", "cloud"), arrow: toolBtn("arrow", "arrow"), text: toolBtn("text", "text"), sign: toolBtn("sign", "sign") };
-    const swatch = (c: MarkupColor) => {
+    const swatch = (c: Swatch) => {
       const b = h("button", { type: "button", class: "swatch", title: COLORS[c].name, "aria-label": COLORS[c].name });
       b.style.setProperty("--swatch", COLORS[c].css);
       b.addEventListener("click", () => this.setColor(c));
@@ -286,12 +309,12 @@ export class Markup {
   }
 
   /** Velger verktøy. Signatur uten lagret signatur: tegn den først (avbrytes det, beholdes verktøyet). */
-  async useTool(k: MarkupKind): Promise<void> {
+  async useTool(k: Tool): Promise<void> {
     if (k === "sign" && !loadSignature() && !(await editSignature())) return;
     this.setTool(k);
   }
 
-  private setTool(k: MarkupKind): void {
+  private setTool(k: Tool): void {
     if (k === "sign" && !loadSignature()) return void this.useTool(k);
     this.cancelDrawing();
     this.tool = k;
@@ -360,6 +383,107 @@ export class Markup {
     this.markDirty();
   }
 
+  /**
+   * Ctrl+Z utenfor markeringsmodus: angrer siste tekstmarkering fra
+   * høyreklikkmenyen, hvis ingenting annet er endret etterpå.
+   */
+  undoQuick(): boolean {
+    if (!this.s.quick.length || this.s.quick.at(-1) !== this.s.history.length) return false;
+    this.s.quick.pop();
+    this.undo();
+    return true;
+  }
+
+  // ---------- Tekstmarkering (fra høyreklikkmenyen) ----------
+
+  /** Markerer, understreker eller gjennomstreker tekst; én markering per side. */
+  addTextMarkup(kind: TextMarkupKind, color: MarkupColor, parts: Array<{ page: number; points: Pt[] }>, text: string): void {
+    const add = parts.filter((p) => p.points.length >= 4 && this.layers.has(p.page));
+    if (!add.length) return;
+    this.remember();
+    for (const p of add) {
+      const geom = this.layers.get(p.page)!.geom;
+      this.s.items.push({ id: this.nextId++, page: p.page, kind, points: p.points, color, u: Math.hypot(geom.width, geom.height) / 1000, text });
+      this.redraw(p.page);
+    }
+    this.s.quick.push(this.s.history.length);
+    this.markDirty();
+  }
+
+  /**
+   * Den markerte teksten som rektangler per linje, i PDF-koordinater
+   * (fire hjørner hver, se `StoredMarkup.points`), gruppert per side.
+   */
+  selectionQuads(sel: Selection): Array<{ page: number; points: Pt[] }> {
+    // Rektangler per side, i skjermkoordinater, fra hver tekstbit som er markert.
+    const byPage = new Map<number, DOMRect[]>();
+    for (let r = 0; r < sel.rangeCount; r++) {
+      const range = sel.getRangeAt(r);
+      const root = range.commonAncestorContainer;
+      const walker = document.createTreeWalker(root.nodeType === Node.TEXT_NODE ? root.parentNode! : root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!range.intersectsNode(n) || !n.textContent?.trim()) continue;
+        const pageEl = n.parentElement?.closest(".textLayer")?.closest(".page") as HTMLElement | null;
+        if (!pageEl) continue;
+        const part = document.createRange();
+        part.selectNodeContents(n);
+        if (n === range.startContainer) part.setStart(n, range.startOffset);
+        if (n === range.endContainer) part.setEnd(n, range.endOffset);
+        const page = Number(pageEl.dataset.index);
+        const list = byPage.get(page) ?? [];
+        for (const rect of part.getClientRects()) if (rect.width > 0.5 && rect.height > 0.5) list.push(rect);
+        byPage.set(page, list);
+      }
+    }
+    const out: Array<{ page: number; points: Pt[] }> = [];
+    for (const [page, rects] of byPage) {
+      const layer = this.layers.get(page);
+      const pageEl = layer?.el.parentElement;
+      if (!layer || !pageEl || !rects.length) continue;
+      const box = pageEl.getBoundingClientRect();
+      const g = layer.geom;
+      const pdf = (x: number, y: number): Pt => g.convertToPdfPoint(((x - box.left) / box.width) * g.width, ((y - box.top) / box.height) * g.height) as Pt;
+      const points: Pt[] = [];
+      for (const l of mergeLines(rects)) points.push(pdf(l.left, l.top), pdf(l.right, l.top), pdf(l.left, l.bottom), pdf(l.right, l.bottom));
+      out.push({ page, points });
+    }
+    return out.sort((a, b) => a.page - b.page);
+  }
+
+  /** Tekstmarkeringen under musepekeren (også utenfor markeringsmodus). */
+  textMarkupAt(e: MouseEvent): { id: number; kind: TextMarkupKind; color: MarkupColor } | null {
+    const hit = this.hitPage(e);
+    if (!hit) return null;
+    for (let i = this.s.items.length - 1; i >= 0; i--) {
+      const m = this.s.items[i];
+      if (m.page === hit.page && isTextMarkup(m.kind) && this.inQuads(m, hit.p, this.pointsPerPixel(hit.page) * 2)) return { id: m.id, kind: m.kind, color: m.color };
+    }
+    return null;
+  }
+
+  /** Endrer fargen på en markering. */
+  recolor(id: number, color: MarkupColor): void {
+    const m = this.s.items.find((x) => x.id === id);
+    if (!m || m.color === color) return;
+    this.remember();
+    m.color = color;
+    this.redraw(m.page);
+    this.markDirty();
+  }
+
+  /** Fjerner en markering. */
+  removeItem(id: number): void {
+    this.remove(id);
+  }
+
+  private inQuads(m: StoredMarkup, p: Pt, tol: number): boolean {
+    return quadsOf(m.points).some((q) => {
+      const xs = q.map((c) => c[0]);
+      const ys = q.map((c) => c[1]);
+      return p[0] >= Math.min(...xs) - tol && p[0] <= Math.max(...xs) + tol && p[1] >= Math.min(...ys) - tol && p[1] <= Math.max(...ys) + tol;
+    });
+  }
+
   private markDirty(): void {
     const dirty = signature(this.s.items) !== signature(this.s.saved);
     const changed = dirty !== this.s.dirty;
@@ -383,6 +507,8 @@ export class Markup {
           ? "Dra for å flytte · dobbeltklikk endrer teksten · Delete sletter"
           : sel.kind === "sign"
             ? "Dra for å flytte · dra i hjørnene for å endre størrelsen · Delete sletter"
+            : isTextMarkup(sel.kind)
+              ? "Klikk en farge for å endre den · Delete sletter"
             : "Dra for å flytte · dra i punktene for å endre · Delete sletter";
     } else if (this.tool === "sign") t = "Klikk der signaturen skal stå";
     else if (this.tool === "text") t = "Klikk der teksten skal stå";
@@ -399,14 +525,14 @@ export class Markup {
     if (this.panel.hidden) return;
     this.list.replaceChildren(
       ...items.map((m, i) => {
-        const what = m.kind === "text" ? `«${(m.text ?? "").split(/\r?\n/)[0].slice(0, 40)}»` : TOOL_NAMES[m.kind];
+        const what = m.kind === "text" || (isTextMarkup(m.kind) && m.text) ? `«${(m.text ?? "").split(/\r?\n/)[0].slice(0, 40)}»` : TOOL_NAMES[m.kind];
         const dot = h("span", { class: "markup-dot" });
         dot.style.background = COLORS[m.color].css;
         const row = h(
           "li",
           { class: m.id === this.s.selected ? "selected" : "" },
           h("span", { class: "measure-nr" }, String(i + 1)),
-          h("span", { class: "measure-desc" }, h("span", { class: "measure-value" }, dot, what), h("span", { class: "muted" }, `${m.kind === "text" ? "Tekst · " : ""}side ${m.page + 1}`)),
+          h("span", { class: "measure-desc" }, h("span", { class: "measure-value" }, dot, what), h("span", { class: "muted" }, `${m.kind === "text" ? "Tekst · " : isTextMarkup(m.kind) && m.text ? `${TOOL_NAMES[m.kind]} · ` : ""}side ${m.page + 1}`)),
           button("", "close", () => this.remove(m.id), { title: "Fjern", className: "ghost" }),
         );
         row.addEventListener("click", (e) => {
@@ -492,6 +618,8 @@ export class Markup {
       if (target) {
         const m = this.s.items.find((x) => x.id === target.id)!;
         this.select(target.id);
+        // Markert tekst ligger fast på teksten.
+        if (isTextMarkup(m.kind)) return;
         this.grab = { id: m.id, page: m.page, node: target.node, from: hit.p, points: m.points.map((p) => [p[0], p[1]] as Pt), x: e.clientX, y: e.clientY, moved: false };
         el.setPointerCapture(e.pointerId);
         return;
@@ -660,6 +788,8 @@ export class Markup {
         if (x >= -tol && y >= -tol && x <= L.w + tol && y <= L.h + tol) return { id: m.id, node: null };
       } else if (m.kind === "arrow") {
         if (segDist(p, m.points[0], m.points[1]) <= Math.max(ppp * 6, lineWidth(m.u) * 2)) return { id: m.id, node: null };
+      } else if (isTextMarkup(m.kind)) {
+        if (this.inQuads(m, p, ppp * 2)) return { id: m.id, node: null };
       } else if (m.kind === "sign") {
         const [a, b] = m.points;
         const tol = ppp * 3;
@@ -841,12 +971,20 @@ export class Markup {
       const handles = h("div", { class: "markup-handles" });
       const el = h("div", { class: "markupLayer" });
       el.append(svg, handles);
-      layer = { el, svg, handles, geom };
+      const hl = svgEl("svg", { preserveAspectRatio: "none" });
+      const hlEl = h("div", { class: "highlightLayer" });
+      hlEl.append(hl);
+      layer = { el, svg, handles, hl, hlEl, geom };
       this.layers.set(page, layer);
     }
     layer.geom = geom;
     layer.svg.setAttribute("viewBox", `0 0 ${geom.width} ${geom.height}`);
-    // Under målelaget, så måleetikettene ligger øverst.
+    layer.hl.setAttribute("viewBox", `0 0 ${geom.width} ${geom.height}`);
+    // Markert tekst over siden (også detaljbildet ved dyp zoom), men under tekstlaget;
+    // resten under målelaget, så måleetikettene ligger øverst.
+    const textLayer = pageEl.querySelector(".textLayer");
+    if (textLayer) pageEl.insertBefore(layer.hlEl, textLayer);
+    else pageEl.append(layer.hlEl);
     const measureLayer = pageEl.querySelector(".measureLayer");
     if (measureLayer) pageEl.insertBefore(layer.el, measureLayer);
     else pageEl.append(layer.el);
@@ -865,13 +1003,17 @@ export class Markup {
     const layer = this.layers.get(page);
     if (!layer) return;
     const nodes: SVGElement[] = [];
+    const marks: SVGElement[] = [];
     const handles: HTMLElement[] = [];
     for (const m of this.s.items) {
       if (m.page !== page) continue;
       // Teksten som skrives om, vises i skrivefeltet.
       if (this.editor?.id === m.id) continue;
       const sel = m.id === this.s.selected;
-      nodes.push(this.shape(layer, m, sel));
+      if (m.kind === "highlight") {
+        marks.push(this.shape(layer, m, false));
+        if (sel) nodes.push(this.quadOutline(layer, m));
+      } else nodes.push(this.shape(layer, m, sel));
       if (sel) {
         for (const p of this.handlePoints(m)) {
           const [x, y] = this.toView(layer, p);
@@ -884,6 +1026,7 @@ export class Markup {
     }
     const preview = svgEl("g", { class: "k-preview" });
     layer.svg.replaceChildren(...nodes, preview);
+    layer.hl.replaceChildren(...marks);
     layer.handles.replaceChildren(...handles);
     this.drawPreview(page);
   }
@@ -893,7 +1036,16 @@ export class Markup {
     const lw = lineWidth(m.u);
     const g = svgEl("g", { class: `k-shape ${m.kind}${selected ? " selected" : ""}` });
     const v = (p: Pt) => this.toView(layer, p).map((n) => n.toFixed(2)).join(" ");
-    if (m.kind === "sign") {
+    if (m.kind === "highlight") {
+      const d = quadsOf(m.points).map(([tl, tr, bl, br]) => `M ${v(tl)} L ${v(tr)} L ${v(br)} L ${v(bl)} Z`).join(" ");
+      g.append(svgEl("path", { d, fill: highlightCss(m.color) }));
+    } else if (m.kind === "underline" || m.kind === "strike") {
+      if (selected) g.append(this.quadOutline(layer, m));
+      for (const q of quadsOf(m.points)) {
+        const l = textLine(q, m.kind);
+        g.append(svgEl("path", { d: `M ${v(l.a)} L ${v(l.b)}`, stroke: color, "stroke-width": l.width, fill: "none" }));
+      }
+    } else if (m.kind === "sign") {
       const r = displayRect(m.points[0], m.points[1], m.rot);
       const [x, y] = this.toView(layer, r.topLeft);
       const rot = (layer.geom.rotation - (m.rot ?? 0) + 360) % 360;
@@ -945,6 +1097,13 @@ export class Markup {
     return null;
   }
 
+  /** Stiplet ramme rundt hver linje i markert tekst. */
+  private quadOutline(layer: Layer, m: StoredMarkup): SVGElement {
+    const g = svgEl("g", {});
+    for (const [tl, tr, bl, br] of quadsOf(m.points)) g.append(this.selectionBox(layer, [tl, tr, br, bl]));
+    return g;
+  }
+
   private selectionBox(layer: Layer, corners: Pt[]): SVGElement {
     return svgEl("polygon", { points: corners.map((p) => this.toView(layer, p).join(",")).join(" "), class: "k-select" });
   }
@@ -962,6 +1121,27 @@ export class Markup {
     const u = Math.hypot(layer.geom.width, layer.geom.height) / 1000;
     g.replaceChildren(this.shape(layer, { page, kind: this.tool, points: [d.a, d.b], color: this.color, u }, false));
   }
+}
+
+/** Slår sammen rektangler som står på samme linje og ligger inntil hverandre. */
+function mergeLines(rects: DOMRect[]): Array<{ left: number; right: number; top: number; bottom: number }> {
+  const lines: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+  const sorted = [...rects].sort((a, b) => a.top - b.top || a.left - b.left);
+  for (const r of sorted) {
+    const h = r.bottom - r.top;
+    const line = lines.find((l) => {
+      const overlap = Math.min(l.bottom, r.bottom) - Math.max(l.top, r.top);
+      const gap = Math.max(r.left - l.right, l.left - r.right);
+      return overlap > Math.min(h, l.bottom - l.top) * 0.5 && gap < h * 1.5;
+    });
+    if (line) {
+      line.left = Math.min(line.left, r.left);
+      line.right = Math.max(line.right, r.right);
+      line.top = Math.min(line.top, r.top);
+      line.bottom = Math.max(line.bottom, r.bottom);
+    } else lines.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+  }
+  return lines;
 }
 
 function segDist(p: Pt, a: Pt, b: Pt): number {
