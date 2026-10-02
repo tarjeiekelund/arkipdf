@@ -1,8 +1,9 @@
-// Markering (sky, pil og tekst): geometri, lagring i PDF-fila og innlesing.
+// Markering (sky, pil, tekst og signatur): geometri, lagring i PDF-fila og innlesing.
 //
 // Markeringene skrives som vanlige PDF-kommentarer, slik at de vises og kan
 // redigeres i Acrobat, Bluebeam, Edge o.l.: sky som Square med skykant (BE /C),
-// pil som Line med pilspiss, tekst som FreeText. Alle får ferdig tegnet
+// pil som Line med pilspiss, tekst som FreeText og signatur som Stamp med
+// signaturen som bilde (blekkfarge med gjennomsiktighet). Alle får ferdig tegnet
 // utseende og legges i laget «Merknader (ArkiPDF)», som ArkiPDF skjuler i sin
 // egen visning og tegner redigerbart i stedet. Dataene leses fra nøkkelen
 // «ArkiPDFMarkup».
@@ -11,6 +12,7 @@ import {
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFRawStream,
   PDFRef,
   PDFString,
   StandardFonts,
@@ -18,6 +20,8 @@ import {
   beginText,
   closePath,
   concatTransformationMatrix,
+  decodePDFRawStream,
+  drawObject,
   endText,
   fill,
   lineTo,
@@ -47,7 +51,7 @@ export function isMarkupLayer(name: string | null | undefined): boolean {
   return name === MARKUP_LAYER;
 }
 
-export type MarkupKind = "cloud" | "arrow" | "text";
+export type MarkupKind = "cloud" | "arrow" | "text" | "sign";
 export type MarkupColor = "red" | "blue" | "black";
 
 export const COLORS: Record<MarkupColor, { rgb: [number, number, number]; css: string; name: string }> = {
@@ -56,17 +60,26 @@ export const COLORS: Record<MarkupColor, { rgb: [number, number, number]; css: s
   black: { rgb: [0.1, 0.1, 0.1], css: "#1a1a1a", name: "Svart" },
 };
 
+/** Signaturen som bilde: hvor mye blekk det er i hver piksel. */
+export interface SignatureImage {
+  w: number;
+  h: number;
+  /** Dekningen (0–255) per piksel, rad for rad ovenfra, zlib-komprimert og i base64. */
+  a: string;
+}
+
 export interface StoredMarkup {
   page: number;
   kind: MarkupKind;
-  /** Sky: to motsatte hjørner. Pil: fra og til (spissen). Tekst: øvre venstre hjørne. */
+  /** Sky og signatur: to motsatte hjørner. Pil: fra og til (spissen). Tekst: øvre venstre hjørne. */
   points: Pt[];
   color: MarkupColor;
   /** Størrelsesenhet i punkter (sidens diagonal / 1000), så markeringen passer arket. */
   u: number;
   text?: string;
-  /** Sidens /Rotate da teksten ble skrevet; teksten står rett når siden vises. */
+  /** Sidens /Rotate da teksten eller signaturen ble lagt inn; den står rett når siden vises. */
   rot?: number;
+  img?: SignatureImage;
 }
 
 // ---------- Geometri (PDF-koordinater) ----------
@@ -189,14 +202,71 @@ export function toTextLocal(p: Pt, anchor: Pt, rot: number | undefined): Pt {
   return [dx * ex[0] + dy * ex[1], dx * ey[0] + dy * ey[1]];
 }
 
+/**
+ * Rektangelet a–b slik siden vises: øvre venstre hjørne og bredde og høyde
+ * (i punkter) langs «høyre» og «ned» (se `displayAxes`).
+ */
+export function displayRect(a: Pt, b: Pt, rot: number | undefined): { topLeft: Pt; w: number; h: number } {
+  const { ex, ey } = displayAxes(rot);
+  const dx = Math.abs(b[0] - a[0]);
+  const dy = Math.abs(b[1] - a[1]);
+  const w = ex[0] ? dx : dy;
+  const h = ex[0] ? dy : dx;
+  const c: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  return { topLeft: [c[0] - (ex[0] * w + ey[0] * h) / 2, c[1] - (ex[1] * w + ey[1] * h) / 2], w, h };
+}
+
+/** Rektangelet (to motsatte hjørner) for en signatur med gitt bredde og høyde slik siden vises, sentrert i c. */
+export function rectAround(c: Pt, w: number, h: number, rot: number | undefined): [Pt, Pt] {
+  const { ex, ey } = displayAxes(rot);
+  const hx = Math.abs(ex[0] * w + ey[0] * h) / 2;
+  const hy = Math.abs(ex[1] * w + ey[1] * h) / 2;
+  return [[c[0] - hx, c[1] - hy], [c[0] + hx, c[1] + hy]];
+}
+
+// ---------- Signaturbildet ----------
+
+export function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+export function fromBase64(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
+  const out = new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(stream));
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+/** zlib-komprimering, samme format som FlateDecode i PDF. */
+export const deflate = (bytes: Uint8Array) => pipe(bytes, new CompressionStream("deflate"));
+export const inflate = (bytes: Uint8Array) => pipe(bytes, new DecompressionStream("deflate"));
+
+/** Dekningen per piksel (w × h byte). */
+export async function signatureAlpha(img: SignatureImage): Promise<Uint8Array> {
+  return inflate(fromBase64(img.a));
+}
+
+/** Signaturbildet fra dekningen per piksel. */
+export async function makeSignatureImage(alpha: Uint8Array, w: number, h: number): Promise<SignatureImage> {
+  return { w, h, a: toBase64(await deflate(alpha)) };
+}
+
 // ---------- Lesing og skriving ----------
 
-const KINDS: MarkupKind[] = ["cloud", "arrow", "text"];
+const KINDS: MarkupKind[] = ["cloud", "arrow", "text", "sign"];
 
 /** Leser markeringer som ArkiPDF har lagret i fila. */
 export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
   const out: StoredMarkup[] = [];
+  const masks: Promise<void>[] = [];
   doc.getPages().forEach((page, index) => {
     const annots = page.node.Annots();
     if (!annots) return;
@@ -209,7 +279,7 @@ export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
         const points = (d.points as unknown[]).filter((p): p is Pt => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
         if (points.length < (d.kind === "text" ? 1 : 2)) continue;
         if (d.kind === "text" && (typeof d.text !== "string" || !d.text.trim())) continue;
-        out.push({
+        const item: StoredMarkup = {
           page: index,
           kind: d.kind,
           points,
@@ -217,13 +287,46 @@ export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
           u: d.u,
           text: d.kind === "text" ? d.text : undefined,
           rot: Number.isFinite(d.rot) ? d.rot : 0,
-        });
+        };
+        if (d.kind === "sign") {
+          const mask = signatureMask(annots.lookupMaybe(i, PDFDict)!);
+          if (!mask) continue;
+          masks.push(readMask(mask).then((img) => void (item.img = img)));
+        }
+        out.push(item);
       } catch {
         /* Ødelagt oppføring hoppes over. */
       }
     }
   });
+  await Promise.all(masks);
   return out;
+}
+
+/** Signaturbildets gjennomsiktighet (SMask) i utseendet til en signatur. */
+function signatureMask(annot: PDFDict): PDFRawStream | null {
+  const ap = annot.lookupMaybe(PDFName.of("AP"), PDFDict)?.lookup(PDFName.of("N"));
+  if (!(ap instanceof PDFRawStream)) return null;
+  const xobjects = ap.dict.lookupMaybe(PDFName.of("Resources"), PDFDict)?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+  for (const [, ref] of xobjects?.entries() ?? []) {
+    const img = annot.context.lookup(ref);
+    const mask = img instanceof PDFRawStream ? img.dict.lookup(PDFName.of("SMask")) : null;
+    if (mask instanceof PDFRawStream) return mask;
+  }
+  return null;
+}
+
+async function readMask(mask: PDFRawStream): Promise<SignatureImage> {
+  const d = mask.dict;
+  const num = (k: string) => Number(d.lookup(PDFName.of(k))?.toString());
+  const w = num("Width");
+  const h = num("Height");
+  const filter = d.lookup(PDFName.of("Filter"));
+  // Slik ArkiPDF skrev den: bruk de komprimerte bytene som de er.
+  if (filter?.toString() === "/FlateDecode" && !d.has(PDFName.of("DecodeParms")) && num("BitsPerComponent") === 8) {
+    return { w, h, a: toBase64(mask.contents) };
+  }
+  return makeSignatureImage(decodePDFRawStream(mask).decode(), w, h);
 }
 
 /** Skriver markeringene inn i PDF-en (erstatter markeringer som er lagret tidligere). */
@@ -247,7 +350,19 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
       }
       removed = true;
       const ap = dict.lookupMaybe(PDFName.of("AP"), PDFDict)?.get(PDFName.of("N"));
-      if (ap instanceof PDFRef) ctx.delete(ap);
+      if (ap instanceof PDFRef) {
+        // Signaturbildet og masken følger med.
+        const form = ctx.lookup(ap);
+        const xobjects = form instanceof PDFRawStream ? form.dict.lookupMaybe(PDFName.of("Resources"), PDFDict)?.lookupMaybe(PDFName.of("XObject"), PDFDict) : undefined;
+        for (const [, ref] of xobjects?.entries() ?? []) {
+          if (!(ref instanceof PDFRef)) continue;
+          const img = ctx.lookup(ref);
+          const mask = img instanceof PDFRawStream ? img.dict.get(PDFName.of("SMask")) : undefined;
+          if (mask instanceof PDFRef) ctx.delete(mask);
+          ctx.delete(ref);
+        }
+        ctx.delete(ap);
+      }
       if (raw instanceof PDFRef) ctx.delete(raw);
     }
     if (removed) {
@@ -260,6 +375,27 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
   const layer = ensureLayer(doc, MARKUP_LAYER, isMarkupLayer);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const now = pdfDate(new Date());
+  // Samme signatur flere steder lagres bare én gang.
+  const masks = new Map<string, PDFRef>();
+  const images = new Map<string, PDFRef>();
+  const signatureRef = (img: SignatureImage, color: MarkupColor): PDFRef => {
+    const key = `${color}:${img.a}`;
+    let ref = images.get(key);
+    if (ref) return ref;
+    let mask = masks.get(img.a);
+    if (!mask) {
+      const s = ctx.stream(fromBase64(img.a), { Type: "XObject", Subtype: "Image", Width: img.w, Height: img.h, ColorSpace: "DeviceGray", BitsPerComponent: 8, Filter: "FlateDecode" });
+      mask = ctx.register(s);
+      masks.set(img.a, mask);
+    }
+    // Selve bildet er bare blekkfargen; masken gir formen.
+    const rgb = COLORS[color].rgb.map((c) => Math.round(c * 255));
+    const px = new Uint8Array(img.w * img.h * 3);
+    for (let i = 0; i < px.length; i += 3) px.set(rgb, i);
+    ref = ctx.register(ctx.flateStream(px, { Type: "XObject", Subtype: "Image", Width: img.w, Height: img.h, ColorSpace: "DeviceRGB", BitsPerComponent: 8, SMask: mask }));
+    images.set(key, ref);
+    return ref;
+  };
 
   items.forEach((m, n) => {
     const page = pages[m.page];
@@ -267,6 +403,7 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
     const color = COLORS[m.color].rgb;
     const lw = lineWidth(m.u);
     const ops: PDFOperator[] = [pushGraphicsState()];
+    const resources: Record<string, unknown> = { Font: { Helv: font.ref } };
     let bbox: [number, number, number, number];
     const dict: Record<string, unknown> = {
       Type: "Annot",
@@ -277,10 +414,22 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
       F: 4,
       C: color,
       OC: layer,
+      // Signaturbildet leses fra utseendet (se `signatureMask`), så det ikke ligger dobbelt i fila.
       [KEY]: PDFHexString.fromText(JSON.stringify({ v: 1, kind: m.kind, points: m.points, color: m.color, u: m.u, text: m.text, rot: m.rot })),
     };
 
-    if (m.kind === "cloud") {
+    if (m.kind === "sign") {
+      if (!m.img) return;
+      const [a, b] = m.points;
+      const r = displayRect(a, b, m.rot);
+      const { ex, ey } = displayAxes(m.rot);
+      // Bildets enhetskvadrat: x mot høyre og y oppover slik siden vises, fra nedre venstre hjørne.
+      const bl: Pt = [r.topLeft[0] + ey[0] * r.h, r.topLeft[1] + ey[1] * r.h];
+      ops.push(concatTransformationMatrix(ex[0] * r.w, ex[1] * r.w, -ey[0] * r.h, -ey[1] * r.h, bl[0], bl[1]), drawObject("Sig"));
+      resources.XObject = { Sig: signatureRef(m.img, m.color) };
+      bbox = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+      Object.assign(dict, { Subtype: "Stamp", Name: "ArkiPDFSignatur" });
+    } else if (m.kind === "cloud") {
       const [a, b] = m.points;
       const curves = cloudCurves(a, b, m.u);
       ops.push(setStrokingRgbColor(...color), setLineWidth(lw), setLineJoin(1), setLineCap(1));
@@ -334,13 +483,57 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
       if (m.rot) dict.Rotate = ((m.rot % 360) + 360) % 360;
     }
     ops.push(popGraphicsState());
-    const stream = ctx.formXObject(ops, { BBox: bbox, Matrix: [1, 0, 0, 1, 0, 0], Resources: { Font: { Helv: font.ref } } });
+    const stream = ctx.formXObject(ops, { BBox: bbox, Matrix: [1, 0, 0, 1, 0, 0], Resources: resources as never });
     dict.Rect = bbox;
     dict.AP = { N: ctx.register(stream) };
-    if (m.kind !== "text") dict.Contents = PDFHexString.fromText(m.kind === "cloud" ? "Sky" : "Pil");
+    if (m.kind !== "text") dict.Contents = PDFHexString.fromText(m.kind === "cloud" ? "Sky" : m.kind === "arrow" ? "Pil" : "Signatur");
     page.node.addAnnot(ctx.register(ctx.obj(dict as never)));
   });
   return doc.save();
+}
+
+/**
+ * «Låser» signaturene: tegner dem inn i sidens innhold og fjerner kommentarene,
+ * så de ikke kan flyttes eller slettes i andre PDF-lesere. Andre markeringer
+ * blir stående som kommentarer.
+ */
+export async function flattenSignatures(bytes: Uint8Array): Promise<{ bytes: Uint8Array; count: number }> {
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  if (doc.isEncrypted) throw new Error("Fila er kryptert og kan ikke endres.");
+  const ctx = doc.context;
+  let count = 0;
+  for (const page of doc.getPages()) {
+    const annots = page.node.Annots();
+    if (!annots) continue;
+    const keep: PDFRef[] = [];
+    let changed = false;
+    for (let i = 0; i < annots.size(); i++) {
+      const raw = annots.get(i);
+      const dict = annots.lookupMaybe(i, PDFDict);
+      let kind: unknown;
+      try {
+        kind = JSON.parse(textOf(dict?.lookup(PDFName.of(KEY))) ?? "null")?.kind;
+      } catch {
+        /* ikke vår */
+      }
+      const ap = dict?.lookupMaybe(PDFName.of("AP"), PDFDict)?.get(PDFName.of("N"));
+      if (kind !== "sign" || !(ap instanceof PDFRef)) {
+        keep.push(raw as PDFRef);
+        continue;
+      }
+      // Utseendet har BBox = Rect og ingen matrise, så det tegnes rett i sidens koordinater.
+      const name = page.node.newXObject("ArkiSig", ap);
+      page.pushOperators(pushGraphicsState(), drawObject(name), popGraphicsState());
+      if (raw instanceof PDFRef) ctx.delete(raw);
+      changed = true;
+      count++;
+    }
+    if (changed) {
+      if (keep.length) page.node.set(PDFName.of("Annots"), ctx.obj(keep));
+      else page.node.delete(PDFName.of("Annots"));
+    }
+  }
+  return { bytes: count ? await doc.save() : bytes, count };
 }
 
 function canEncode(font: PDFFont, ch: string): boolean {

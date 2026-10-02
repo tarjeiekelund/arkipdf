@@ -23,6 +23,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 | Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
+| Signere | Knappen **Signer**. Tegn signaturen eller hent den fra et bilde, og klikk der den skal stå. Se [Signatur](#signatur) |
 | Redigere tekst | **E** (knappen **Rediger**). Se [Redigere tekst](#redigere-tekst) |
 | Sladde | Knappen **Sladd**. Innholdet fjernes fra fila for godt. Se [Sladding](#sladding) |
 | Word, Excel og PowerPoint til PDF | Åpne eller dra inn dokumentet (også i **Slå sammen**). Office på PC-en gjør det om i bakgrunnen, uten å vise vinduer; finnes ikke Office, brukes LibreOffice hvis det er installert. Resultatet vises før det lagres |
@@ -150,6 +151,31 @@ og trykk **Sladd**.
   boksen. Tekst som er tegnet som streker (vanlig i CAD-eksport), er figurer:
   merk hele teksten, så fjernes den. Bokmerker og filnavn endres ikke.
 
+### Signatur
+
+Trykk **Signer** (eller **N** mens du markerer). Første gang tegner du
+signaturen med musa, en penn eller fingeren, eller henter den fra et bilde
+(**Fra bilde**): et foto eller en skanning av signaturen på hvitt papir.
+Papiret blir gjennomsiktig, så bare blekket blir med. Signaturen huskes på
+PC-en og brukes igjen neste gang; **Endre signatur…** lager en ny.
+
+- Klikk der signaturen skal stå. Den settes inn i vanlig håndskriftstørrelse
+  (5 cm bred) og står rett også på roterte ark.
+- Dra for å flytte, og dra i hjørnene for å endre størrelsen. Delete sletter,
+  og Ctrl+Z angrer.
+- Velg blekkfarge (blå, svart eller rød) før du klikker, eller klikk en farge
+  mens signaturen er valgt. Blekkfargen huskes for seg, uavhengig av fargen
+  på markeringene.
+- **Lagre** (Ctrl+S) skriver signaturen inn i PDF-en som et stempel, som vises
+  i Acrobat, Edge, Bluebeam og andre PDF-lesere. Der kan den flyttes eller
+  slettes, som andre kommentarer.
+- **Lagre låst kopi…** lagrer en kopi der signaturene (og utfylte
+  skjemafelt) er en del av selve siden og ikke kan flyttes eller slettes.
+  Bruk den før du sender et signert dokument.
+- Dette er en innsatt signatur, som når du signerer på papir og skanner.
+  Det er ikke en digital signatur med sertifikat (som BankID), og PDF-en
+  får ingen signaturkontroll.
+
 ### Skjemaer
 
 PDF-skjemaer med felt (tekst, avkrysning, radioknapper og nedtrekkslister)
@@ -158,8 +184,8 @@ kan fylles ut rett i ArkiPDF. Feltene er lyseblå; Tab går til neste felt.
 - Stripa over dokumentet viser at skjemaet er fylt ut. **Lagre** (Ctrl+S)
   skriver verdiene inn i fila, så de vises i Acrobat, Edge og andre
   PDF-lesere. Mål og markeringer lagres samtidig.
-- **Lagre låst kopi…** lagrer en kopi der feltene er gjort om til vanlig
-  innhold, så mottakeren ikke kan endre dem. Skjemaet du fyller ut, er
+- **Lagre låst kopi…** lagrer en kopi der feltene (og signaturene) er gjort
+  om til vanlig innhold, så mottakeren ikke kan endre dem. Skjemaet du fyller ut, er
   fortsatt åpent.
 - Utskrift tar med verdiene, også før de er lagret.
 - Skjemaer laget med Adobe LiveCycle (XFA) støttes ikke. Er skjemaet bare en
@@ -261,8 +287,9 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── measure.ts   måling: verktøy, målestokk, liste
 │   ├── measure-math.ts beregninger og innebygd målestokk i PDF
 │   ├── measure-pdf.ts lagring av mål som PDF-kommentarer
-│   ├── markup.ts    markering: sky, pil og tekst
-│   ├── markup-pdf.ts lagring av markeringer som PDF-kommentarer
+│   ├── markup.ts    markering: sky, pil, tekst og signatur
+│   ├── markup-pdf.ts lagring av markeringer som PDF-kommentarer, låsing av signaturer
+│   ├── signature.ts tegning av signaturen, eller fra et bilde
 │   ├── snap.ts      snapping til streker i tegningen
 │   ├── present.ts   fullskjerm-presentasjon
 │   ├── organize.ts  «Sorter sider»

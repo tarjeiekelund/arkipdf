@@ -6,6 +6,7 @@ import { normalizeImage } from "./images";
 import { openExportDialog } from "./exportpng";
 import { browserCodec } from "./compress";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
+import { flattenSignatures } from "./markup-pdf";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
 import { Organizer } from "./organize";
@@ -133,6 +134,7 @@ const viewControls = h(
 
 const measureBtn = docBtn(button("Mål", "ruler", () => toggleMeasure(), { title: "Mål avstand, lengde og areal (M)", className: "keep-label" }));
 const markupBtn = docBtn(button("Merk", "markup", () => toggleMarkup(), { title: "Marker med sky, pil og tekst (K)", className: "keep-label" }));
+const signBtn = docBtn(button("Signer", "sign", () => void toggleSign(), { title: "Sett inn signaturen din (tegnet eller fra et bilde)", className: "keep-label" }));
 const textEditBtn = docBtn(button("Rediger", "editText", () => toggleTextEdit(), { title: "Rediger tekst i PDF-en (E)", className: "keep-label" }));
 measure.onChange = () => refresh();
 markup.onChange = () => refresh();
@@ -151,6 +153,7 @@ textEdit.runsFor = async (page) => {
 };
 measure.onSave = () => saveAnnotations();
 markup.onSave = () => saveAnnotations();
+markup.onSaveLocked = () => saveFlattened();
 
 /** Måling, markering og tekstredigering er hver sin modus; bare én er på om gangen. */
 function toggleMeasure(): void {
@@ -161,6 +164,17 @@ function toggleMeasure(): void {
 function toggleMarkup(): void {
   closeModes(markup);
   markup.toggle();
+}
+
+/** Signering er markering med signaturverktøyet. */
+async function toggleSign(): Promise<void> {
+  if (markup.signing) return markup.close();
+  closeModes(markup);
+  const was = markup.active;
+  markup.open();
+  await markup.useTool("sign");
+  // Avbrutt før det fantes en signatur: tilbake dit vi var.
+  if (!was && !markup.signing) markup.close();
 }
 
 function toggleTextEdit(): void {
@@ -289,7 +303,7 @@ const barHint = h("span", { class: "muted hint" });
 const barDiscard = button("Forkast", null, () => void discardChanges());
 const barSaveAs = button("Lagre som…", null, () => void saveDoc(true), { title: "Lagre som ny fil (Ctrl+Shift+S)" });
 const barSave = button("Lagre", "save", () => void saveDoc(), { primary: true, title: "Lagre (Ctrl+S)" });
-const barFlatten = button("Lagre låst kopi…", null, () => void saveFlattened(), { title: "Lagre en kopi der de utfylte feltene ikke kan endres (f.eks. før skjemaet sendes)" });
+const barFlatten = button("Lagre låst kopi…", null, () => void saveFlattened(), { title: "Lagre en kopi der de utfylte feltene og signaturene ikke kan endres (f.eks. før skjemaet sendes)" });
 const unsavedBar = h("div", { class: "subbar unsaved-bar" }, barTitle, barHint, h("span", { class: "spacer" }), barDiscard, barFlatten, barSaveAs, barSave);
 
 function updateDocBar(): void {
@@ -324,6 +338,7 @@ const toolbar = h(
   docBtn(button("Reduser", "shrink", () => void startShrink(), { title: "Reduser filstørrelse: skaler ned bilder og fjern duplikater" })),
   measureBtn,
   markupBtn,
+  signBtn,
   textEditBtn,
   redactBtn,
   h("span", { class: "spacer" }),
@@ -484,7 +499,8 @@ function refresh(): void {
   selectBtn.classList.toggle("active", viewer.tool === "select");
   handBtn.classList.toggle("active", viewer.tool === "hand");
   measureBtn.classList.toggle("active", measure.active);
-  markupBtn.classList.toggle("active", markup.active);
+  markupBtn.classList.toggle("active", markup.active && !markup.signing);
+  signBtn.classList.toggle("active", markup.signing);
   textEditBtn.classList.toggle("active", textEdit.active);
   redactBtn.classList.toggle("active", redactor.active);
   updateDocBar();
@@ -1227,7 +1243,10 @@ async function bakeForms(tab: OpenDoc): Promise<void> {
   tab.modified = !tab.unsaved;
 }
 
-/** Lagrer en kopi der skjemafeltene er gjort om til vanlig innhold, så mottakeren ikke kan endre dem. */
+/**
+ * Lagrer en kopi der skjemafeltene og signaturene er gjort om til vanlig
+ * innhold, så mottakeren ikke kan endre, flytte eller slette dem.
+ */
 async function saveFlattened(): Promise<void> {
   const tab = current;
   if (!tab) return;
@@ -1238,8 +1257,11 @@ async function saveFlattened(): Promise<void> {
     let bytes = await bytesWithForms(tab);
     if (measure.dirty) bytes = await measure.writeTo(bytes);
     if (markup.dirty) bytes = await markup.writeTo(bytes);
-    await writeFile(target, await flattenForm(bytes));
-    toast(`Låst kopi lagret: ${baseName(target)}. Skjemaet du fyller ut her, er fortsatt åpent for endringer.`, "success");
+    if (viewer.hasForms) bytes = await flattenForm(bytes);
+    const signed = await flattenSignatures(bytes);
+    await writeFile(target, signed.bytes);
+    const what = [viewer.hasForms && "skjemafeltene", signed.count && (signed.count === 1 ? "signaturen" : "signaturene")].filter(Boolean).join(" og ") || "innholdet";
+    toast(`Låst kopi lagret: ${baseName(target)}. I kopien kan ${what} ikke endres. Dokumentet her er fortsatt åpent for endringer.`, "success");
   } catch (e) {
     toast(`Kunne ikke lagre låst kopi: ${errorMessage(e)}`, "error");
   } finally {
