@@ -1,26 +1,31 @@
-// Markering (K): revisjonssky, pil og tekst på tegningene.
+// Markering (K): revisjonssky, pil og tekst på tegningene, og signatur.
 //
 // Punktene lagres i PDF-koordinater, så markeringene ligger fast på tegningen
 // uansett zoom og rotasjon. Størrelsen (strek, buer, skrift) følger arket, så
-// en markering ser lik ut på A4 og A1 når arket vises helt. Lagres som vanlige
-// PDF-kommentarer (se markup-pdf.ts).
+// en markering ser lik ut på A4 og A1 når arket vises helt. Signaturen har
+// derimot en vanlig håndskriftstørrelse. Lagres som vanlige PDF-kommentarer
+// (se markup-pdf.ts).
 import { distance, type Pt } from "./measure-math";
 import {
   COLORS,
   arrowGeometry,
   cloudBulge,
   cloudCurves,
+  displayRect,
   lineWidth,
   readMarkups,
+  rectAround,
   textCorners,
   textLayout,
   toTextLocal,
   writeMarkups,
   type MarkupColor,
   type MarkupKind,
+  type SignatureImage,
   type StoredMarkup,
   type TextLayout,
 } from "./markup-pdf";
+import { editSignature, loadSignature, signatureUrl } from "./signature";
 import { button, h } from "./ui";
 import type { PageGeometry, Viewer } from "./viewer";
 
@@ -39,7 +44,7 @@ export interface MarkupDoc {
 }
 
 const clone = (items: Item[]): Item[] => items.map((m) => ({ ...m, points: m.points.map((p) => [p[0], p[1]] as Pt) }));
-const signature = (items: Item[]) => JSON.stringify(items.map((m) => [m.page, m.kind, m.points, m.color, m.u, m.text ?? "", m.rot ?? 0]));
+const signature = (items: Item[]) => JSON.stringify(items.map((m) => [m.page, m.kind, m.points, m.color, m.u, m.text ?? "", m.rot ?? 0, m.img?.a ?? ""]));
 
 function newMarkupDoc(): MarkupDoc {
   return { items: [], selected: null, history: [], dirty: false, saved: [] };
@@ -69,8 +74,10 @@ interface Layer {
 
 const SVG = "http://www.w3.org/2000/svg";
 const FONT = "Helvetica, Arial, sans-serif";
-const TOOL_NAMES: Record<MarkupKind, string> = { cloud: "Sky", arrow: "Pil", text: "Tekst" };
-const TOOL_KEYS: Record<MarkupKind, string> = { cloud: "S", arrow: "P", text: "T" };
+const TOOL_NAMES: Record<MarkupKind, string> = { cloud: "Sky", arrow: "Pil", text: "Tekst", sign: "Signatur" };
+const TOOL_KEYS: Record<MarkupKind, string> = { cloud: "S", arrow: "P", text: "T", sign: "N" };
+/** Signaturens bredde når den settes inn: 50 mm, som en vanlig håndskrevet signatur. */
+const SIGN_WIDTH = (50 / 25.4) * 72;
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 /** Tekstbredde i punkter med samme skrift som i PDF-en (Helvetica, eller Arial på Windows). */
@@ -112,7 +119,11 @@ export class Markup {
   private count: HTMLSpanElement;
   active = false;
   private tool: MarkupKind = "cloud";
-  private color: MarkupColor = (store.get("markupColor") as MarkupColor) in COLORS ? (store.get("markupColor") as MarkupColor) : "red";
+  /** Fargen til markeringer, og blekkfargen til signaturer (huskes hver for seg). */
+  private colors: { markup: MarkupColor; sign: MarkupColor } = {
+    markup: (store.get("markupColor") as MarkupColor) in COLORS ? (store.get("markupColor") as MarkupColor) : "red",
+    sign: (store.get("signColor") as MarkupColor) in COLORS ? (store.get("signColor") as MarkupColor) : "blue",
+  };
   private s: MarkupDoc = newMarkupDoc();
   private nextId = 1;
   private layers = new Map<number, Layer>();
@@ -121,23 +132,27 @@ export class Markup {
   private drawing: { page: number; a: Pt; b: Pt; x: number; y: number } | null = null;
   /** Markering som flyttes (`node` null) eller endres i et håndtak. */
   private grab: { id: number; page: number; node: number | null; from: Pt; points: Pt[]; x: number; y: number; moved: boolean } | null = null;
-  /** Trykk på tom flate med tekstverktøyet: ny tekst når knappen slippes. */
-  private pendingText: { page: number; p: Pt; x: number; y: number } | null = null;
+  /** Trykk på tom flate med tekst- eller signaturverktøyet: settes inn når knappen slippes. */
+  private pendingClick: { page: number; p: Pt; x: number; y: number } | null = null;
   private editor: { el: HTMLTextAreaElement; page: number; id: number | null; anchor: Pt; u: number; rot: number; done: boolean } | null = null;
 
   private toolButtons: Record<MarkupKind, HTMLButtonElement>;
   private swatches: Record<MarkupColor, HTMLButtonElement>;
   private hint: HTMLSpanElement;
   private saveBtn: HTMLButtonElement;
+  private changeSignBtn: HTMLButtonElement;
+  private lockBtn: HTMLButtonElement;
 
   onChange: () => void = () => {};
   /** Lagrer dokumentet (hovedprogrammet skriver mål og markeringer sammen). */
   onSave: (() => Promise<unknown>) | null = null;
+  /** Lagrer en kopi der signaturene er en del av siden. */
+  onSaveLocked: (() => Promise<unknown>) | null = null;
 
   constructor(private readonly viewer: Viewer) {
     const toolBtn = (k: MarkupKind, iconName: string) =>
       button(TOOL_NAMES[k], iconName, () => this.setTool(k), { title: `${TOOL_NAMES[k]} (${TOOL_KEYS[k]})`, className: "ghost tool" });
-    this.toolButtons = { cloud: toolBtn("cloud", "cloud"), arrow: toolBtn("arrow", "arrow"), text: toolBtn("text", "text") };
+    this.toolButtons = { cloud: toolBtn("cloud", "cloud"), arrow: toolBtn("arrow", "arrow"), text: toolBtn("text", "text"), sign: toolBtn("sign", "sign") };
     const swatch = (c: MarkupColor) => {
       const b = h("button", { type: "button", class: "swatch", title: COLORS[c].name, "aria-label": COLORS[c].name });
       b.style.setProperty("--swatch", COLORS[c].css);
@@ -147,15 +162,22 @@ export class Markup {
     this.swatches = { red: swatch("red"), blue: swatch("blue"), black: swatch("black") };
     this.hint = h("span", { class: "measure-hint muted" });
     this.saveBtn = button("Lagre", "save", () => void this.save(), { title: "Lagre markeringene i PDF-fila (Ctrl+S)", className: "save-btn" });
+    this.changeSignBtn = button("Endre signatur…", null, () => void this.changeSignature(), { title: "Tegn signaturen på nytt, eller hent den fra et bilde", className: "ghost" });
+    this.lockBtn = button("Lagre låst kopi…", null, () => void this.saveLocked(), {
+      title: "Lagre en kopi der signaturene er en del av siden og ikke kan flyttes eller slettes (f.eks. før dokumentet sendes)",
+      className: "ghost",
+    });
     this.bar = h(
       "div",
       { class: "subbar markup-bar", hidden: true },
       h("strong", {}, "Merk"),
-      h("span", { class: "tool-group" }, this.toolButtons.cloud, this.toolButtons.arrow, this.toolButtons.text),
+      h("span", { class: "tool-group" }, this.toolButtons.cloud, this.toolButtons.arrow, this.toolButtons.text, this.toolButtons.sign),
       h("span", { class: "sep" }),
       h("span", { class: "swatches", role: "group", "aria-label": "Farge" }, this.swatches.red, this.swatches.blue, this.swatches.black),
+      this.changeSignBtn,
       h("span", { class: "spacer" }),
       this.hint,
+      this.lockBtn,
       this.saveBtn,
       button("", "close", () => this.close(), { title: "Avslutt markering (Esc)", className: "ghost" }),
     );
@@ -179,7 +201,15 @@ export class Markup {
       this.attach(page, pageEl, geom);
     };
     this.setTool(this.tool);
-    this.setColor(this.color);
+  }
+
+  private get color(): MarkupColor {
+    return this.tool === "sign" ? this.colors.sign : this.colors.markup;
+  }
+
+  /** Signaturverktøyet er valgt. */
+  get signing(): boolean {
+    return this.active && this.tool === "sign";
   }
 
   // ---------- Dokument og modus ----------
@@ -217,7 +247,7 @@ export class Markup {
     this.s = st;
     this.drawing = null;
     this.grab = null;
-    this.pendingText = null;
+    this.pendingClick = null;
     this.layers.clear();
     this.refreshBar();
   }
@@ -255,21 +285,44 @@ export class Markup {
     this.onChange();
   }
 
+  /** Velger verktøy. Signatur uten lagret signatur: tegn den først (avbrytes det, beholdes verktøyet). */
+  async useTool(k: MarkupKind): Promise<void> {
+    if (k === "sign" && !loadSignature() && !(await editSignature())) return;
+    this.setTool(k);
+  }
+
   private setTool(k: MarkupKind): void {
+    if (k === "sign" && !loadSignature()) return void this.useTool(k);
     this.cancelDrawing();
     this.tool = k;
     for (const [key, b] of Object.entries(this.toolButtons)) b.classList.toggle("active", key === k);
     this.viewer.el.dataset.ktool = k;
+    this.showColor();
     this.refreshBar();
+    this.onChange();
+  }
+
+  private showColor(): void {
+    for (const [key, b] of Object.entries(this.swatches)) {
+      b.classList.toggle("active", key === this.color);
+      b.setAttribute("aria-pressed", String(key === this.color));
+    }
+  }
+
+  private async changeSignature(): Promise<void> {
+    if (await editSignature(loadSignature())) this.setTool("sign");
+  }
+
+  private async saveLocked(): Promise<void> {
+    this.closeEditor(true);
+    await this.onSaveLocked?.();
   }
 
   private setColor(c: MarkupColor): void {
-    this.color = c;
-    store.set("markupColor", c);
-    for (const [key, b] of Object.entries(this.swatches)) {
-      b.classList.toggle("active", key === c);
-      b.setAttribute("aria-pressed", String(key === c));
-    }
+    if (this.tool === "sign") this.colors.sign = c;
+    else this.colors.markup = c;
+    store.set(this.tool === "sign" ? "signColor" : "markupColor", c);
+    this.showColor();
     // Valgt markering får fargen også.
     const m = this.selectedItem();
     if (m && m.color !== c) {
@@ -319,9 +372,19 @@ export class Markup {
     this.saveBtn.disabled = !this.s.dirty;
     this.saveBtn.classList.toggle("primary", this.s.dirty);
     this.saveBtn.title = this.s.dirty ? "Lagre markeringene i PDF-fila (Ctrl+S)" : "Markeringene er lagret i fila";
+    this.changeSignBtn.hidden = this.tool !== "sign";
+    this.lockBtn.hidden = !this.s.items.some((m) => m.kind === "sign");
     let t: string;
+    const sel = this.selectedItem();
     if (this.editor) t = "Skriv teksten · Enter er ferdig · Shift+Enter gir ny linje · Esc avbryter";
-    else if (this.s.selected !== null) t = this.selectedItem()?.kind === "text" ? "Dra for å flytte · dobbeltklikk endrer teksten · Delete sletter" : "Dra for å flytte · dra i punktene for å endre · Delete sletter";
+    else if (sel) {
+      t =
+        sel.kind === "text"
+          ? "Dra for å flytte · dobbeltklikk endrer teksten · Delete sletter"
+          : sel.kind === "sign"
+            ? "Dra for å flytte · dra i hjørnene for å endre størrelsen · Delete sletter"
+            : "Dra for å flytte · dra i punktene for å endre · Delete sletter";
+    } else if (this.tool === "sign") t = "Klikk der signaturen skal stå";
     else if (this.tool === "text") t = "Klikk der teksten skal stå";
     else t = this.tool === "cloud" ? "Dra opp skyen rundt det som er endret" : "Dra fra der pila starter til det den peker på";
     this.hint.textContent = t;
@@ -402,6 +465,7 @@ export class Markup {
     else if (!ctrl && !e.altKey && k.toLowerCase() === "s") this.setTool("cloud");
     else if (!ctrl && !e.altKey && k.toLowerCase() === "p") this.setTool("arrow");
     else if (!ctrl && !e.altKey && k.toLowerCase() === "t") this.setTool("text");
+    else if (!ctrl && !e.altKey && k.toLowerCase() === "n") void this.useTool("sign");
     else if (k === "Enter" && this.selectedItem()?.kind === "text") this.editText(this.selectedItem()!);
     else return false;
     return true;
@@ -433,8 +497,8 @@ export class Markup {
         return;
       }
       this.select(null);
-      if (this.tool === "text") {
-        this.pendingText = { page: hit.page, p: hit.p, x: e.clientX, y: e.clientY };
+      if (this.tool === "text" || this.tool === "sign") {
+        this.pendingClick = { page: hit.page, p: hit.p, x: e.clientX, y: e.clientY };
         return;
       }
       this.drawing = { page: hit.page, a: hit.p, b: hit.p, x: e.clientX, y: e.clientY };
@@ -460,10 +524,10 @@ export class Markup {
       if (!this.active) return;
       const g = this.grab;
       const d = this.drawing;
-      const pt = this.pendingText;
+      const pt = this.pendingClick;
       this.grab = null;
       this.drawing = null;
-      this.pendingText = null;
+      this.pendingClick = null;
       el.classList.remove("k-dragging");
       if (g?.moved) this.markDirty();
       if (d) {
@@ -471,7 +535,10 @@ export class Markup {
         if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) this.add({ page: d.page, kind: this.tool, points: [d.a, d.b] });
         else this.hint.textContent = this.tool === "cloud" ? "Hold inne og dra for å tegne skyen" : "Hold inne og dra for å tegne pila";
       }
-      if (pt && Math.hypot(e.clientX - pt.x, e.clientY - pt.y) <= 5) this.newText(pt.page, pt.p);
+      if (pt && Math.hypot(e.clientX - pt.x, e.clientY - pt.y) <= 5) {
+        if (this.tool === "sign") this.placeSignature(pt.page, pt.p);
+        else this.newText(pt.page, pt.p);
+      }
     });
     el.addEventListener("pointercancel", () => {
       if (this.grab?.moved) this.markDirty();
@@ -494,7 +561,7 @@ export class Markup {
     const g = this.grab;
     const d = this.drawing;
     this.drawing = null;
-    this.pendingText = null;
+    this.pendingClick = null;
     this.grab = null;
     this.viewer.el.classList.remove("k-dragging");
     if (g?.moved) {
@@ -505,6 +572,19 @@ export class Markup {
       this.redraw(g.page);
     }
     if (d) this.drawPreview(d.page);
+  }
+
+  /** Setter inn den lagrede signaturen med midten i p, og velger den så den kan flyttes og skaleres. */
+  private placeSignature(page: number, p: Pt): void {
+    const img = loadSignature();
+    const layer = this.layers.get(page);
+    if (!img || !layer) return;
+    const rot = this.pageRotation(layer);
+    // Ikke bredere enn 40 % av arket (slik det vises), for små sider.
+    const pageW = rot % 180 ? layer.geom.height : layer.geom.width;
+    const w = Math.min(SIGN_WIDTH, pageW * 0.4);
+    const item = this.add({ page, kind: "sign", points: rectAround(p, w, (w * img.h) / img.w, rot), rot, img });
+    if (item) this.select(item.id);
   }
 
   private add(m: Omit<StoredMarkup, "color" | "u">): Item | null {
@@ -536,6 +616,21 @@ export class Markup {
       const dy = p[1] - g.from[1];
       m.points = g.points.map((q) => [q[0] + dx, q[1] + dy] as Pt);
     } else if (m.kind === "arrow") m.points = g.node === 0 ? [p, b] : [a, p];
+    else if (m.kind === "sign" && m.img) {
+      // Motsatt hjørne ligger fast, og signaturen beholder formen.
+      const fixed = this.handlePoints({ ...m, points: g.points })[[1, 0, 3, 2][g.node]];
+      const ratio = (m.rot ?? 0) % 180 ? m.img.h / m.img.w : m.img.w / m.img.h; // bredde/høyde i PDF-koordinater
+      let dx = p[0] - fixed[0];
+      let dy = p[1] - fixed[1];
+      const min = this.pointsPerPixel(g.page) * 12;
+      const sx = Math.sign(dx) || 1;
+      const sy = Math.sign(dy) || 1;
+      dx = Math.max(Math.abs(dx), min * ratio);
+      dy = Math.max(Math.abs(dy), min);
+      if (dx / ratio > dy) dy = dx / ratio;
+      else dx = dy * ratio;
+      m.points = [fixed, [fixed[0] + sx * dx, fixed[1] + sy * dy]];
+    }
     else if (m.kind === "cloud") {
       // Håndtak 0 og 1 er hjørnene a og b; 2 og 3 de to andre.
       if (g.node === 0) m.points = [p, b];
@@ -565,6 +660,10 @@ export class Markup {
         if (x >= -tol && y >= -tol && x <= L.w + tol && y <= L.h + tol) return { id: m.id, node: null };
       } else if (m.kind === "arrow") {
         if (segDist(p, m.points[0], m.points[1]) <= Math.max(ppp * 6, lineWidth(m.u) * 2)) return { id: m.id, node: null };
+      } else if (m.kind === "sign") {
+        const [a, b] = m.points;
+        const tol = ppp * 3;
+        if (p[0] >= Math.min(a[0], b[0]) - tol && p[0] <= Math.max(a[0], b[0]) + tol && p[1] >= Math.min(a[1], b[1]) - tol && p[1] <= Math.max(a[1], b[1]) + tol) return { id: m.id, node: null };
       } else {
         const [a, b] = m.points;
         const x0 = Math.min(a[0], b[0]);
@@ -603,9 +702,9 @@ export class Markup {
     return gone.length;
   }
 
-  private handlePoints(m: Item): Pt[] {
+  private handlePoints(m: StoredMarkup): Pt[] {
     if (m.kind === "arrow") return m.points;
-    if (m.kind === "cloud") {
+    if (m.kind === "cloud" || m.kind === "sign") {
       const [a, b] = m.points;
       return [a, b, [a[0], b[1]], [b[0], a[1]]];
     }
@@ -794,7 +893,16 @@ export class Markup {
     const lw = lineWidth(m.u);
     const g = svgEl("g", { class: `k-shape ${m.kind}${selected ? " selected" : ""}` });
     const v = (p: Pt) => this.toView(layer, p).map((n) => n.toFixed(2)).join(" ");
-    if (m.kind === "cloud") {
+    if (m.kind === "sign") {
+      const r = displayRect(m.points[0], m.points[1], m.rot);
+      const [x, y] = this.toView(layer, r.topLeft);
+      const rot = (layer.geom.rotation - (m.rot ?? 0) + 360) % 360;
+      const t = svgEl("g", { transform: `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${rot})` });
+      if (selected) t.append(svgEl("rect", { x: -lw * 2, y: -lw * 2, width: r.w + lw * 4, height: r.h + lw * 4, class: "k-select" }));
+      const url = m.img && this.signatureUrl(m.img, m.color, m.page);
+      if (url) t.append(svgEl("image", { href: url, x: 0, y: 0, width: r.w, height: r.h, preserveAspectRatio: "none" }));
+      g.append(t);
+    } else if (m.kind === "cloud") {
       const [a, b] = m.points;
       const curves = cloudCurves(a, b, m.u);
       if (selected) {
@@ -827,6 +935,14 @@ export class Markup {
       g.append(t);
     }
     return g;
+  }
+
+  /** Bildet av signaturen i blekkfargen; tegner siden på nytt når det er klart. */
+  private signatureUrl(img: SignatureImage, color: MarkupColor, page: number): string | null {
+    const url = signatureUrl(img, COLORS[color].css);
+    if (typeof url === "string") return url;
+    void url.then(() => this.redraw(page));
+    return null;
   }
 
   private selectionBox(layer: Layer, corners: Pt[]): SVGElement {

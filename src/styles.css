@@ -2323,3 +2323,115 @@ input.range {
   padding: 0 10px;
   font-size: 13px;
 }
+
+/* ---------- Signatur ---------- */
+
+.sign-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sign-dialog p {
+  margin: 0;
+}
+
+.sign-dialog .small {
+  font-size: 12px;
+}
+
+.sign-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sign-tab {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sign-tab.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sign-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sign-panel[hidden] {
+  display: none;
+}
+
+.sign-pad-wrap {
+  position: relative;
+}
+
+/* Papiret er alltid hvitt, også i mørkt tema, så signaturen vises som på arket. */
+.sign-pad {
+  display: block;
+  width: 100%;
+  height: 180px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.sign-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 44px;
+  border-bottom: 1px dashed #b9b8b2;
+  pointer-events: none;
+}
+
+.sign-clear {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.sign-preview,
+.sign-current {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 90px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.sign-current {
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 6px 10px;
+}
+
+.sign-current[hidden] {
+  display: none;
+}
+
+.sign-preview-img {
+  max-width: 100%;
+  max-height: 140px;
+}
+
+.sign-current .sign-preview-img {
+  max-height: 40px;
+}
