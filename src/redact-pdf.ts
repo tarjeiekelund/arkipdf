@@ -10,6 +10,9 @@
 // - Kommentarer og skjemafelt som berører et område, fjernes.
 // - Skjulte kopier av innholdet fjernes: miniatyrbilder av sidene og
 //   Illustrator-data (PieceInfo), og alt som ikke lenger brukes.
+//
+// «Slett tekst» (`eraseText`) bruker det samme, men fjerner bare tekst og
+// dekker ingenting over.
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString, decodePDFRawStream, rgb } from "pdf-lib";
 import { collectGarbage, colorSpace, defaultDecode, filterNames, flateImage, jpegStream, pixels, type ImageCodec } from "./compress.ts";
 import type { Pt } from "./measure-math.ts";
@@ -54,6 +57,8 @@ interface Ctx {
   rects: Rect[];
   stats: RedactStats;
   codec: ImageCodec;
+  /** Bare tekst fjernes (bilder, figurer og kommentarer får stå). */
+  textOnly: boolean;
 }
 
 interface Result {
@@ -207,7 +212,7 @@ async function processStream(c: Ctx, data: Uint8Array, resources: PDFDict | unde
       case "b*":
       case "n": {
         // En tegnet figur som ligger helt inne i et område, fjernes (ikke klippebaner).
-        if (pathStart !== null && op.op !== "n" && !pathClip && pathPts.length && c.rects.some((r) => pathPts.every((p) => inside(p, r)))) {
+        if (!c.textOnly && pathStart !== null && op.op !== "n" && !pathClip && pathPts.length && c.rects.some((r) => pathPts.every((p) => inside(p, r)))) {
           edits.push({ start: pathStart, end: op.end, text: "" });
           c.stats.paths++;
         }
@@ -285,7 +290,7 @@ async function processStream(c: Ctx, data: Uint8Array, resources: PDFDict | unde
           const b = xo.dict.lookupMaybe(N("BBox"), PDFArray)?.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
           const box = b && b.length === 4 ? bbox([apply(formCtm, b[0], b[1]), apply(formCtm, b[2], b[1]), apply(formCtm, b[2], b[3]), apply(formCtm, b[0], b[3])]) : null;
           if (box && !c.rects.some((r) => overlaps(box, r))) break;
-          if (box && c.rects.some((r) => inside([box[0], box[1]], r) && inside([box[2], box[3]], r))) {
+          if (!c.textOnly && box && c.rects.some((r) => inside([box[0], box[1]], r) && inside([box[2], box[3]], r))) {
             edits.push({ start: op.start, end: op.end, text: "" });
             usedX.delete(name);
             c.stats.paths++;
@@ -312,7 +317,7 @@ async function processStream(c: Ctx, data: Uint8Array, resources: PDFDict | unde
           edits.push({ start: op.start, end: op.end, text: `/${copyName} Do` });
           usedX.delete(name);
           usedX.add(copyName);
-        } else if (sub === N("Image")) {
+        } else if (sub === N("Image") && !c.textOnly) {
           const quad = [apply(ctm, 0, 0), apply(ctm, 1, 0), apply(ctm, 1, 1), apply(ctm, 0, 1)];
           const box = bbox(quad);
           const hit = c.rects.filter((r) => overlaps(box, r));
@@ -414,9 +419,26 @@ async function blackenImage(c: Ctx, img: PDFRawStream, ctm: Matrix, rects: Rect[
 }
 
 /** Sladder områdene. Returnerer det nye dokumentet og hva som ble fjernet. */
-export async function redactPdf(bytes: Uint8Array, areas: RedactArea[], codec: ImageCodec): Promise<{ bytes: Uint8Array; stats: RedactStats }> {
+export function redactPdf(bytes: Uint8Array, areas: RedactArea[], codec: ImageCodec): Promise<{ bytes: Uint8Array; stats: RedactStats }> {
+  return remove(bytes, areas, codec, false);
+}
+
+const noCodec: ImageCodec = {
+  resize: () => Promise.reject(new Error("ikke i bruk")),
+  jpeg: () => Promise.reject(new Error("ikke i bruk")),
+};
+
+/**
+ * «Slett tekst»: fjerner tegnene i områdene fra fila, uten å dekke over.
+ * Resten av linjen står der den stod.
+ */
+export function eraseText(bytes: Uint8Array, areas: RedactArea[]): Promise<{ bytes: Uint8Array; stats: RedactStats }> {
+  return remove(bytes, areas, noCodec, true);
+}
+
+async function remove(bytes: Uint8Array, areas: RedactArea[], codec: ImageCodec, textOnly: boolean): Promise<{ bytes: Uint8Array; stats: RedactStats }> {
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  if (doc.isEncrypted) throw new Error("Dokumentet er kryptert og kan ikke sladdes.");
+  if (doc.isEncrypted) throw new Error(`Dokumentet er kryptert og kan ikke ${textOnly ? "endres" : "sladdes"}.`);
   const ctx = doc.context;
   const stats: RedactStats = { glyphs: 0, images: 0, paths: 0, annotations: 0 };
   const pages = doc.getPages();
@@ -426,8 +448,8 @@ export async function redactPdf(bytes: Uint8Array, areas: RedactArea[], codec: I
     const rects = areas.filter((a) => a.page === index).map((a) => a.rect);
     if (!rects.length) continue;
     const content = pageContent(page);
-    if (!content) throw new Error(`Innholdet på side ${index + 1} kan ikke leses, så det kan ikke sladdes trygt.`);
-    const c: Ctx = { doc, rects, stats, codec };
+    if (!content) throw new Error(`Innholdet på side ${index + 1} kan ikke leses, så ${textOnly ? "teksten kan ikke slettes" : "det kan ikke sladdes trygt"}.`);
+    const c: Ctx = { doc, rects, stats, codec, textOnly };
     const r = await processStream(c, content, page.node.Resources(), IDENTITY, 0);
     if (r.resources) page.node.set(N("Resources"), r.resources);
     const edited = applyEdits(content, r.edits);
@@ -437,6 +459,7 @@ export async function redactPdf(bytes: Uint8Array, areas: RedactArea[], codec: I
     wrapped.set(edited, 2);
     wrapped.set(enc.encode("\nQ\n"), edited.length + 2);
     page.node.set(N("Contents"), ctx.register(ctx.flateStream(wrapped)));
+    if (textOnly) continue;
 
     // Kommentarer og skjemafelt i området.
     const annots = page.node.Annots();
@@ -478,8 +501,10 @@ export async function redactPdf(bytes: Uint8Array, areas: RedactArea[], codec: I
     form.set(N("Fields"), ctx.obj(prune(fields)));
   }
   // Illustrator o.l. legger en full, redigerbar kopi av innholdet i PieceInfo.
-  doc.catalog.delete(N("PieceInfo"));
-  for (const page of pages) page.node.delete(N("PieceInfo"));
+  if (!textOnly) {
+    doc.catalog.delete(N("PieceInfo"));
+    for (const page of pages) page.node.delete(N("PieceInfo"));
+  }
   // Alt som ikke lenger brukes (gamle innholdsstrømmer, bilder, kommentarer) fjernes fra fila.
   collectGarbage(ctx);
   return { bytes: await doc.save(), stats };

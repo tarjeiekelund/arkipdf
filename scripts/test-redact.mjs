@@ -5,7 +5,7 @@ import { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream, rgb } from "pdf
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { redactPdf } from "../src/redact-pdf.ts";
+import { eraseText, redactPdf } from "../src/redact-pdf.ts";
 
 const ttf = readFileSync(new URL("../node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf", import.meta.url));
 const noCodec = { resize: async () => { throw new Error("ikke brukt"); }, jpeg: async () => { throw new Error("ikke brukt"); } };
@@ -78,6 +78,28 @@ assert.equal(out2.catalog.get(PDFName.of("PieceInfo")), undefined);
   const at = (x, y) => pix[(y * 100 + x) * 3];
   assert.equal(at(10, 25), 0, "venstre del (x 250–350) er svart");
   assert.equal(at(90, 25), 255, "høyre del er urørt");
+}
+
+// «Slett tekst»: bare tegnene i området fjernes; figurer, bilde og kommentar står, og ingenting dekkes over.
+{
+  const e = await eraseText(bytes, areas);
+  assert.equal(e.stats.glyphs, "1 250 000 kr".length);
+  assert.equal(e.stats.paths + e.stats.images + e.stats.annotations, 0);
+  const ep = await (await getDocument({ data: e.bytes.slice(), standardFontDataUrl: "node_modules/pdfjs-dist/standard_fonts/" }).promise).getPage(1);
+  const et = (await ep.getTextContent()).items.map((i) => i.str).join("|");
+  assert.ok(et.includes("Tilbudssum:") && !et.includes("250"), et);
+  const ed = await PDFDocument.load(e.bytes);
+  assert.equal(ed.getPage(0).node.Annots()?.size(), 1);
+  assert.ok(ed.catalog.get(PDFName.of("PieceInfo")));
+  // Ingen svart boks over området, og bildet er urørt.
+  const source = (d) => {
+    const c = d.getPage(0).node.Contents();
+    const streams = c.asArray ? c.asArray().map((r) => d.context.lookup(r)) : [c];
+    return streams.map((st) => Buffer.from(st.dict.has(PDFName.of("Filter")) ? decodePDFRawStream(st).decode() : st.contents).toString("latin1")).join("\n");
+  };
+  const rects = (src) => (src.match(/ re\b/g) ?? []).length;
+  assert.equal(rects(source(ed)), rects(source(await PDFDocument.load(bytes))), "ingen svart boks");
+  assert.ok(source(ed).includes("/Img Do"), "bildet står");
 }
 
 console.log("sladding: OK");
