@@ -96,7 +96,8 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
   **Kopier som tabell** gir en tabell du kan lime rett inn i Excel.
 - Mellomrom og midtre musetast flytter tegningen også mens du måler.
 - **Lagre i fila** (knappen i lista, eller Ctrl+S mens du måler) skriver
-  målene inn i PDF-en som vanlige målekommentarer, med linjer, farge, navn og tall. De
+  målene inn i PDF-en som vanlige målekommentarer, med linjer, farge, navn og tall
+  (også lengden på hver side av lengde- og arealmål). De
   vises da også i Acrobat, Bluebeam og andre PDF-lesere, samlet i laget
   «Mål (ArkiPDF)» som kan slås av og på der. Neste gang fila åpnes i ArkiPDF,
   kan målene redigeres igjen, og målestokkvalgene er husket. ArkiPDF spør før

@@ -36,7 +36,7 @@ import {
   type PDFFont,
   type PDFOperator,
 } from "pdf-lib";
-import { centroid, circlePoints, distance, pathLength, readPdfScales, type PdfScaleRegion, type Pt } from "./measure-math.ts";
+import { centroid, circlePoints, distance, insidePolygon, pathLength, readPdfScales, type PdfScaleRegion, type Pt } from "./measure-math.ts";
 
 export const LAYER_NAME = "Mål (ArkiPDF)";
 /** Laget het dette før appen fikk navnet ArkiPDF. */
@@ -83,6 +83,8 @@ export interface WritableMeasurement extends StoredMeasurement {
   scaleLabel: string | null;
   text: string;
   subText?: string;
+  /** Lengden på hver side (lengde og areal), i samme rekkefølge som sidene. */
+  sideTexts?: string[];
 }
 
 export function textOf(obj: unknown): string | null {
@@ -297,6 +299,36 @@ function appearance(m: WritableMeasurement, font: PDFFont, size: number): { ops:
   path();
   ops.push(stroke());
 
+  // Sidemål: små bokser rett utenfor hver side (utenfor figuren for areal).
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const sideSize = size * 0.7;
+  const sidePad = sideSize * 0.3;
+  (m.sideTexts ?? []).forEach((text, i) => {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const len = distance(a, b);
+    const w = font.widthOfTextAtSize(text, sideSize) + sidePad * 2;
+    const hgt = sideSize * 1.2 + sidePad;
+    // Korte sider får ingen etikett (den ville dekket siden).
+    if (!text || len < w + sideSize) return;
+    let nx = -(b[1] - a[1]) / len;
+    let ny = (b[0] - a[0]) / len;
+    const mid: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (m.kind === "area" && insidePolygon([mid[0] + nx * 0.01, mid[1] + ny * 0.01], pts)) [nx, ny] = [-nx, -ny];
+    const off = sideSize * 0.3 + Math.abs(nx) * (w / 2) + Math.abs(ny) * (hgt / 2);
+    const cx = mid[0] + nx * off;
+    const cy = mid[1] + ny * off;
+    const sx = cx - w / 2;
+    const sy = cy - hgt / 2;
+    ops.push(setFillingRgbColor(1, 1, 1), rectangle(sx, sy, w, hgt), fill());
+    ops.push(setStrokingRgbColor(...COLOR), setLineWidth(sideSize / 16), rectangle(sx, sy, w, hgt), stroke());
+    ops.push(setFillingRgbColor(0.1, 0.12, 0.12), beginText(), setFontAndSize("Helv", sideSize));
+    ops.push(moveText(sx + sidePad, sy + sidePad / 2 + sideSize * 0.25), showText(font.encodeText(text)), endText());
+    xs.push(sx, sx + w);
+    ys.push(sy, sy + hgt);
+  });
+
   // Etikett: hvit boks med kant, eventuelt navn, verdien og omkrets under.
   const at = m.kind === "area" ? centroid(pts) : m.kind === "circle" ? m.points[0] : midpointOf(pts);
   const small = size * 0.8;
@@ -321,8 +353,8 @@ function appearance(m: WritableMeasurement, font: PDFFont, size: number): { ops:
   }
   ops.push(popGraphicsState());
 
-  const xs = [...pts.map((p) => p[0]), bx, bx + bw];
-  const ys = [...pts.map((p) => p[1]), by, by + bh];
+  xs.push(bx, bx + bw);
+  ys.push(by, by + bh);
   const margin = size / 4 + 2;
   return { ops, bbox: [Math.min(...xs) - margin, Math.min(...ys) - margin, Math.max(...xs) + margin, Math.max(...ys) + margin] };
 }

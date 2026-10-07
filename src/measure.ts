@@ -455,9 +455,22 @@ export class Measure {
         scaleLabel: scale?.label ?? null,
         text: d.main,
         subText: d.sub,
+        sideTexts: this.sideTexts(m),
       };
     });
     return writeMeasurements(bytes, items, this.s.pageScale, this.s.defaultScale);
+  }
+
+  /** Lengden på hver side, slik den vises på skjermen (lengde og areal). */
+  private sideTexts(m: Measurement): string[] | undefined {
+    if (m.kind !== "length" && m.kind !== "area") return undefined;
+    const k = this.metersPerPoint(m);
+    const n = m.points.length;
+    const sides = m.kind === "area" ? n : n - 1;
+    return Array.from({ length: sides }, (_, i) => {
+      const len = distance(m.points[i], m.points[(i + 1) % n]);
+      return k === null ? formatPaper(len).replace(" på arket", "") : formatLength(len * k, this.unit);
+    });
   }
 
   toggle(): void {
