@@ -15,6 +15,15 @@ import {
   regionAt,
   scaleLabel,
   snap45,
+  lockDirection,
+  lockVertex,
+  rectFrom,
+  offsetEdge,
+  setEdgeLength,
+  offsetPath,
+  circlePoints,
+  parseNumber,
+  parsePages,
 } from "../src/measure-math.ts";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -49,6 +58,54 @@ const s = snap45([0, 0], [100, 8]);
 near(s[1], 0);
 const d = snap45([0, 0], [100, 90]);
 near(d[0], d[1]);
+
+// Shift videre fra en kant: 90° på forrige kant, også når den er skrå.
+const skew = lockDirection([10, 10], [10 - 20, 10 + 50], Math.PI / 6, Math.PI / 2);
+near(Math.atan2(skew[1] - 10, skew[0] - 10), Math.PI / 6 + Math.PI / 2);
+const flat = lockDirection([0, 0], [100, 8], 0, Math.PI / 4);
+near(flat[0], 100);
+near(flat[1], 0);
+// Shift når et hjørne dras: begge kantene forblir rette (rektangelet holdes).
+const pt = (p) => p.map((v) => Math.round(v * 1e6) / 1e6);
+assert.deepEqual(pt(lockVertex(room, 2, true, [163, 124], 10)), [160, 120]);
+near(lockVertex(room, 2, true, [200, 125], 10)[1], 120); // langt unna hjørnet: låst til én kant
+
+// Rektangel fra tre klikk: første side og bredden.
+assert.deepEqual(rectFrom([0, 0], [160, 0], [140, 120]), [[0, 0], [160, 0], [160, 120], [0, 120]]);
+const tilted = rectFrom([0, 0], [30, 40], [0, 100]);
+near(polygonArea(tilted), 50 * 60);
+
+// Dra en kant: den flyttes parallelt, og nabokantene beholder retningen.
+const moved = offsetEdge(room, 1, 40, true); // høyre side (160,0)–(160,120), venstrenormal peker mot −x
+assert.deepEqual(moved.map(pt), [[0, 0], [120, 0], [120, 120], [0, 120]]);
+const trap = [[0, 0], [100, 0], [80, 50], [20, 50]];
+const up = offsetEdge(trap, 2, -10, true).map(pt); // toppen flyttes 10 opp
+assert.deepEqual(up[2], [76, 60]);
+assert.deepEqual(up[3], [24, 60]);
+// Åpen linje: endepunktet flyttes rett.
+assert.deepEqual(offsetEdge([[0, 0], [100, 0]], 0, 10, false).map(pt), [[0, 10], [100, 10]]);
+
+// Skriv inn en sidelengde: rektangelet forblir rektangel.
+assert.deepEqual(setEdgeLength(room, 0, 200, true), [[0, 0], [200, 0], [200, 120], [0, 120]]);
+assert.deepEqual(setEdgeLength([[0, 0], [10, 0], [10, 10]], 0, 20, false), [[0, 0], [20, 0], [20, 10]]);
+
+// Forskyv kontur: utover er positivt uansett tegneretning.
+assert.deepEqual(offsetPath(room, 10, true).map(pt), [[-10, -10], [170, -10], [170, 130], [-10, 130]]);
+assert.deepEqual(offsetPath([...room].reverse(), 10, true).map(pt), [[-10, 130], [170, 130], [170, -10], [-10, -10]]);
+assert.deepEqual(offsetPath(room, -10, true).map(pt), [[10, 10], [150, 10], [150, 110], [10, 110]]);
+assert.deepEqual(offsetPath([[0, 0], [100, 0], [100, 100]], 10, false).map(pt), [[0, 10], [90, 10], [90, 100]]);
+
+// Sirkel.
+near(polygonArea(circlePoints([0, 0], 100, 720)), Math.PI * 100 * 100, 50);
+
+// Tall og sider som skrives inn.
+assert.equal(parseNumber("12,5"), 12.5);
+assert.equal(parseNumber(" 4 "), 4);
+assert.equal(parseNumber("4,"), 4);
+assert.equal(parseNumber("abc"), null);
+assert.deepEqual(parsePages("2, 4-5", 6), [1, 3, 4]);
+assert.deepEqual(parsePages("alle", 3), [0, 1, 2]);
+assert.equal(parsePages("7", 6), null);
 
 // Innebygd målestokk leses fra sidens VP-liste.
 const doc = await PDFDocument.create();

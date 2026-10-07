@@ -36,7 +36,7 @@ import {
   type PDFFont,
   type PDFOperator,
 } from "pdf-lib";
-import { centroid, distance, pathLength, readPdfScales, type PdfScaleRegion, type Pt } from "./measure-math.ts";
+import { centroid, circlePoints, distance, pathLength, readPdfScales, type PdfScaleRegion, type Pt } from "./measure-math.ts";
 
 export const LAYER_NAME = "Mål (ArkiPDF)";
 /** Laget het dette før appen fikk navnet ArkiPDF. */
@@ -47,9 +47,11 @@ export function isMeasureLayer(name: string | null | undefined): boolean {
   return name === LAYER_NAME || OLD_LAYER_NAMES.includes(name ?? "");
 }
 const KEY = "BladMeasure";
-const COLOR: [number, number, number] = [0.851, 0.282, 0.059];
+/** Standardfargen på mål (oransje). */
+export const DEFAULT_COLOR = "#d9480f";
 
-export type Kind = "distance" | "length" | "area";
+export type Kind = "distance" | "length" | "area" | "circle";
+const KINDS: Kind[] = ["distance", "length", "area", "circle"];
 
 export interface ScaleData {
   metersPerPoint: number;
@@ -59,8 +61,12 @@ export interface ScaleData {
 export interface StoredMeasurement {
   page: number;
   kind: Kind;
+  /** Sirkel: sentrum og et punkt på omkretsen. Ellers hjørnene. */
   points: Pt[];
   fixed: ScaleData | null;
+  name?: string;
+  /** Farge som «#rrggbb» (mangler: standardfargen). */
+  color?: string;
 }
 
 export interface MeasureFileData {
@@ -102,10 +108,13 @@ export async function readMeasureData(bytes: Uint8Array): Promise<MeasureFileDat
       if (!raw) continue;
       try {
         const d = JSON.parse(raw);
-        if (!["distance", "length", "area"].includes(d.kind) || !Array.isArray(d.points)) continue;
+        if (!KINDS.includes(d.kind) || !Array.isArray(d.points)) continue;
         const points = (d.points as unknown[]).filter((p): p is Pt => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
         if (points.length < 2) continue;
-        measurements.push({ page: index, kind: d.kind, points, fixed: validScale(d.fixed) });
+        const m: StoredMeasurement = { page: index, kind: d.kind, points: d.kind === "circle" ? points.slice(0, 2) : points, fixed: validScale(d.fixed) };
+        if (typeof d.name === "string" && d.name.trim()) m.name = d.name.trim().slice(0, 200);
+        if (typeof d.color === "string" && /^#[0-9a-f]{6}$/i.test(d.color)) m.color = d.color.toLowerCase();
+        measurements.push(m);
       } catch {
         /* Ødelagt oppføring hoppes over. */
       }
@@ -188,22 +197,24 @@ export async function writeMeasurements(
     });
     const apRef = ctx.register(stream);
     const subtype = m.kind === "distance" ? "Line" : m.kind === "length" ? "PolyLine" : "Polygon";
-    const flat = m.points.flat();
+    const flat = outline(m).flat();
+    const contents = (m.name ? `${m.name}: ` : "") + (m.subText ? `${m.text} (${m.subText})` : m.text);
     const dict: Record<string, unknown> = {
       Type: "Annot",
       Subtype: subtype,
       Rect: [x1, y1, x2, y2],
-      Contents: PDFHexString.fromText(m.subText ? `${m.text} (${m.subText})` : m.text),
+      Contents: PDFHexString.fromText(contents),
       NM: PDFString.of(`arkipdf-mal-${Date.now().toString(36)}-${n}`),
       T: PDFHexString.fromText("ArkiPDF"),
       F: 4,
-      C: COLOR,
+      C: rgb(m.color),
       BS: { W: 1.5, S: "S" },
       IT: m.kind === "distance" ? "LineDimension" : m.kind === "length" ? "PolyLineDimension" : "PolygonDimension",
       OC: layer,
       AP: { N: apRef },
-      [KEY]: PDFHexString.fromText(JSON.stringify({ v: 1, kind: m.kind, points: m.points, fixed: m.fixed })),
+      [KEY]: PDFHexString.fromText(JSON.stringify({ v: 1, kind: m.kind, points: m.points, fixed: m.fixed, name: m.name || undefined, color: m.color || undefined })),
     };
+    if (m.name) dict.Subj = PDFHexString.fromText(m.name);
     if (m.kind === "distance") dict.L = flat;
     else dict.Vertices = flat;
     if (m.metersPerPoint) {
@@ -269,14 +280,15 @@ export function ensureLayer(doc: PDFDocument, name: string, isOurs: (name: strin
 
 /** Tegner linjer, flate og etikett som PDF-operatorer (sidens koordinater). */
 function appearance(m: WritableMeasurement, font: PDFFont, size: number): { ops: PDFOperator[]; bbox: [number, number, number, number] } {
-  const pts = m.points;
+  const pts = outline(m);
+  const COLOR = rgb(m.color);
   const ops: PDFOperator[] = [pushGraphicsState(), setLineJoin(1)];
   const path = () => {
     ops.push(moveTo(pts[0][0], pts[0][1]));
     for (let i = 1; i < pts.length; i++) ops.push(lineTo(pts[i][0], pts[i][1]));
-    if (m.kind === "area") ops.push(closePath());
+    if (m.kind !== "distance" && m.kind !== "length") ops.push(closePath());
   };
-  if (m.kind === "area") {
+  if (m.kind !== "distance" && m.kind !== "length") {
     ops.push(pushGraphicsState(), setGraphicsState("GSa"), setFillingRgbColor(...COLOR));
     path();
     ops.push(fill(), popGraphicsState());
@@ -285,23 +297,27 @@ function appearance(m: WritableMeasurement, font: PDFFont, size: number): { ops:
   path();
   ops.push(stroke());
 
-  // Etikett: hvit boks med kant, verdien og eventuelt omkrets under.
-  const at = m.kind === "area" ? centroid(pts) : midpointOf(pts);
+  // Etikett: hvit boks med kant, eventuelt navn, verdien og omkrets under.
+  const at = m.kind === "area" ? centroid(pts) : m.kind === "circle" ? m.points[0] : midpointOf(pts);
   const small = size * 0.8;
-  const w1 = font.widthOfTextAtSize(m.text, size);
-  const w2 = m.subText ? font.widthOfTextAtSize(m.subText, small) : 0;
+  const lines: Array<{ text: string; size: number; color: [number, number, number] }> = [];
+  const name = m.name ? encodable(font, m.name) : "";
+  if (name) lines.push({ text: name, size: small, color: COLOR });
+  lines.push({ text: m.text, size, color: [0.1, 0.12, 0.12] });
+  if (m.subText) lines.push({ text: m.subText, size: small, color: [0.36, 0.4, 0.39] });
   const pad = size * 0.35;
-  const bw = Math.max(w1, w2) + pad * 2;
-  const bh = size * 1.2 + (m.subText ? small * 1.2 : 0) + pad;
+  const bw = Math.max(...lines.map((l) => font.widthOfTextAtSize(l.text, l.size))) + pad * 2;
+  const bh = lines.reduce((s, l) => s + l.size * 1.2, 0) + pad;
   const bx = at[0] - bw / 2;
   const by = at[1] - bh / 2;
   ops.push(setFillingRgbColor(1, 1, 1), rectangle(bx, by, bw, bh), fill());
   ops.push(setStrokingRgbColor(...COLOR), setLineWidth(size / 14), rectangle(bx, by, bw, bh), stroke());
-  ops.push(setFillingRgbColor(0.1, 0.12, 0.12), beginText(), setFontAndSize("Helv", size));
-  ops.push(moveText(at[0] - w1 / 2, by + bh - pad / 2 - size), showText(font.encodeText(m.text)), endText());
-  if (m.subText) {
-    ops.push(setFillingRgbColor(0.36, 0.4, 0.39), beginText(), setFontAndSize("Helv", small));
-    ops.push(moveText(at[0] - w2 / 2, by + pad / 2 + small * 0.25), showText(font.encodeText(m.subText)), endText());
+  let y = by + bh - pad / 2;
+  for (const l of lines) {
+    y -= l.size * 1.2;
+    const w = font.widthOfTextAtSize(l.text, l.size);
+    ops.push(setFillingRgbColor(...l.color), beginText(), setFontAndSize("Helv", l.size));
+    ops.push(moveText(at[0] - w / 2, y + l.size * 0.25), showText(font.encodeText(l.text)), endText());
   }
   ops.push(popGraphicsState());
 
@@ -323,4 +339,20 @@ function midpointOf(points: Pt[]): Pt {
     acc += seg;
   }
   return points[0];
+}
+
+/** Linjene som tegnes: hjørnene, eller punkter rundt sirkelen. */
+function outline(m: StoredMeasurement): Pt[] {
+  return m.kind === "circle" ? circlePoints(m.points[0], distance(m.points[0], m.points[1]), 72) : m.points;
+}
+
+function rgb(hex: string | undefined): [number, number, number] {
+  const v = /^#[0-9a-f]{6}$/i.test(hex ?? "") ? hex! : DEFAULT_COLOR;
+  return [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16) / 255) as [number, number, number];
+}
+
+/** Bytter ut tegn standardfonten ikke har (f.eks. emoji) med «?». */
+function encodable(font: PDFFont, s: string): string {
+  const ok = new Set(font.getCharacterSet());
+  return [...s].map((c) => (ok.has(c.codePointAt(0)!) ? c : "?")).join("");
 }

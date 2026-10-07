@@ -36,6 +36,13 @@ const paths: Record<string, string> = {
   text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
   editText: '<path d="M4 7V5h11v2M9.5 5v14M7 19h5"/><path d="m14 19 6-6 1.5 1.5-6 6H14z"/>',
   redact: '<path d="M4 6h16M4 18h10"/><rect x="4" y="10" width="16" height="4" rx="0.5" fill="currentColor"/>',
+  rect: '<rect x="4" y="6" width="16" height="12" rx="0.5"/>',
+  circle: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/><circle cx="12" cy="12" r="0.8"/>',
+  offset: '<rect x="8" y="8" width="8" height="8" rx="0.5"/><rect x="3.5" y="3.5" width="17" height="17" rx="2" stroke-dasharray="3 2.5"/>',
+  flipH: '<path d="M12 3v18" stroke-dasharray="2 2"/><path d="M9 7 3 17h6zM15 7l6 10h-6z"/>',
+  flipV: '<path d="M3 12h18" stroke-dasharray="2 2"/><path d="M7 9 17 3v6zM7 15l10 6v-6z"/>',
+  pages: '<rect x="7" y="3" width="13" height="16" rx="1.5"/><path d="M4 7v12.5A1.5 1.5 0 0 0 5.5 21H16"/><path d="M11 11h5m-2.5-2.5v5"/>',
+  rotateFree: '<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/><path d="M12 12l4-3"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
 };
 
