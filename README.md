@@ -13,7 +13,8 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | --- | --- |
 | Åpne PDF-er, store som små | **Ctrl+O** (du kan velge flere), dra filer inn i vinduet, dobbeltklikk en PDF i Utforsker, eller velg fra «Nylig åpnet» på startsiden. ArkiPDF husker hvilken side du var på |
 | PDF fra bilder | Åpne eller dra inn et bilde (JPG, PNG, WebP, GIF, BMP), så blir det en PDF som vises før den lagres. Skannede tegninger med oppgitt oppløsning får sin virkelige arkstørrelse, så målestokken stemmer; foto og skjermbilder legges på A4. Mobilbilder står riktig vei. Flere bilder blir én PDF med **Slå sammen** |
-| Faner | Hvert dokument åpnes i sin egen fane, i samme vindu, også når du dobbeltklikker flere PDF-er i Utforsker. Hver fane husker side, zoom, rotasjon og mål. **Ctrl+Tab** / **Ctrl+Shift+Tab** (eller Ctrl+PageDown/PageUp) bytter fane, **Ctrl+W** eller midtre musetast lukker. En prikk på fanen viser at noe ikke er lagret, og ArkiPDF spør før slike faner lukkes |
+| Faner | Hvert dokument åpnes i sin egen fane, i samme vindu, også når du dobbeltklikker flere PDF-er i Utforsker. Hver fane husker side, zoom, rotasjon og mål. **Ctrl+Tab** / **Ctrl+Shift+Tab** (eller Ctrl+PageDown/PageUp) bytter fane, **Ctrl+W** eller midtre musetast lukker. En prikk på fanen viser at noe ikke er lagret, og ArkiPDF spør før slike faner lukkes. Dra fanene for å endre rekkefølgen |
+| Flere vinduer | Høyreklikk en fane og velg **Åpne i nytt vindu** for å flytte den til et eget vindu (fanen må være lagret først). Fra Utforsker: høyreklikk en PDF og velg **Åpne i nytt ArkiPDF-vindu** (i Windows 11 under «Vis flere alternativer»). Filer som åpnes vanlig, havner som faner i vinduet du sist brukte |
 | Presentere i fullskjerm | **Ctrl+L** (eller F5). Se [Presentasjon](#presentasjon) |
 | Slå sammen flere PDF-er | **Ctrl+M**. Velg filer (også bilder, som blir en side hver) og sett rekkefølgen. Resultatet vises før det lagres, så du kan se over sidene og justere med «Sorter sider» (knappen «Bruk» tar endringene i bruk); **Ctrl+S** lagrer. Hver fil får et bokmerke med filnavnet. Resultatet åpnes i en ny fane. Fra Utforsker: marker PDF-ene, høyreklikk og velg **Send til → ArkiPDF – slå sammen PDF-er** (i Windows 11 under «Vis flere alternativer») |
 | Endre rekkefølge på sider | Dra miniatyrene i sidepanelet dit du vil ha dem. Ctrl-klikk og Shift-klikk velger flere sider, som dras samlet. **Delete** sletter valgte sider, og **Ctrl+Z** angrer. Endringene gjelder med én gang, men skrives til fila først når du lagrer: fanen får en prikk, og stripa over dokumentet har **Lagre** (Ctrl+S), **Lagre som…** (Ctrl+Shift+S) og **Forkast**. Mål følger sidene sine |
@@ -275,7 +276,7 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.7.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.8.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ### Nye versjoner

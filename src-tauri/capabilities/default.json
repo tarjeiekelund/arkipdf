@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Tillatelser for hovedvinduet",
+  "description": "Tillatelser for alle ArkiPDF-vinduer",
   "windows": [
-    "main"
+    "*"
   ],
   "permissions": [
     "core:default",

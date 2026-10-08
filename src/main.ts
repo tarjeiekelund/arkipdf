@@ -23,6 +23,7 @@ import {
   OFFICE_FILE,
   onLaunchFiles,
   openFile,
+  openInNewWindow,
   readSystemFont,
   openUrl,
   pickDocuments,
@@ -357,6 +358,10 @@ tabOutline.addEventListener("click", () => setSidebarTab("outline"));
 const content = h("section", { class: "content" });
 const dropOverlay = h("div", { class: "drop-overlay" }, h("div", {}, "Slipp PDF-en her"));
 const tabBar = h("div", { class: "tabbar", role: "tablist", "aria-label": "Åpne dokumenter" });
+tabBar.addEventListener("pointermove", moveTabDrag);
+tabBar.addEventListener("pointerup", endTabDrag);
+tabBar.addEventListener("pointercancel", endTabDrag);
+tabBar.addEventListener("lostpointercapture", endTabDrag);
 app.append(tabBar, toolbar, h("main", {}, sidebar, content), dropOverlay);
 
 function emptyState(): HTMLElement {
@@ -953,9 +958,97 @@ function cycleTab(dir: number): void {
   activate(tabs[(tabs.indexOf(current) + dir + tabs.length) % tabs.length]);
 }
 
+/** Fanen som dras for å endre rekkefølgen: der pekeren og fanen var da draingen startet. */
+let tabDrag: { tab: OpenDoc; pointer: number; startX: number; startLeft: number; moved: boolean } | null = null;
+
+const tabEls = () => Array.from(tabBar.querySelectorAll<HTMLElement>(".doc-tab"));
+
+function startTabDrag(tab: OpenDoc, el: HTMLElement, e: PointerEvent): void {
+  if (organizer) return;
+  tabDrag = { tab, pointer: e.pointerId, startX: e.clientX, startLeft: el.offsetLeft, moved: false };
+  // Fanelinja (som ikke tegnes på nytt) holder på pekeren, også utenfor vinduet.
+  tabBar.setPointerCapture(e.pointerId);
+}
+
+/** Fanen følger pekeren og bytter plass med naboen når den passerer midten av den. */
+function moveTabDrag(e: PointerEvent): void {
+  const d = tabDrag;
+  if (!d || e.pointerId !== d.pointer || !tabs.includes(d.tab)) return;
+  const dx = e.clientX - d.startX;
+  if (!d.moved && Math.abs(dx) < 5) return;
+  d.moved = true;
+  for (;;) {
+    const els = tabEls();
+    const i = tabs.indexOf(d.tab);
+    const el = els[i];
+    el.classList.add("dragging");
+    const center = d.startLeft + dx + el.offsetWidth / 2;
+    const next = els[i + 1];
+    const prev = els[i - 1];
+    const to = next && center > next.offsetLeft + next.offsetWidth / 2 ? i + 1 : prev && center < prev.offsetLeft + prev.offsetWidth / 2 ? i - 1 : i;
+    if (to === i) {
+      el.style.transform = `translateX(${d.startLeft + dx - el.offsetLeft}px)`;
+      return;
+    }
+    if (to > i) next.after(el);
+    else prev.before(el);
+    tabs.splice(i, 1);
+    tabs.splice(to, 0, d.tab);
+  }
+}
+
+function endTabDrag(): void {
+  const moved = tabDrag?.moved;
+  tabDrag = null;
+  if (!moved) return;
+  tabsKey = "";
+  renderTabs();
+}
+
+/** Høyreklikk på en fane. */
+function openTabMenu(tab: OpenDoc, x: number, y: number): void {
+  if (organizer) return;
+  const item = (label: string, action: () => void, disabled = false) => {
+    const b = h("button", { type: "button", class: "popover-item", disabled }, label);
+    b.addEventListener("click", () => {
+      close();
+      action();
+    });
+    return b;
+  };
+  const canMove = isTauri && tabs.length > 1;
+  const blocked = hasUnsaved(tab);
+  const menu = h(
+    "div",
+    { class: "popover", role: "menu" },
+    canMove ? item("Åpne i nytt vindu", () => void moveToNewWindow(tab), blocked) : null,
+    canMove && blocked ? h("div", { class: "popover-note muted" }, "Lagre fanen først (Ctrl+S) for å åpne den i et nytt vindu.") : null,
+    item("Lukk fane", () => void closeTab(tab)),
+  );
+  const close = showPopover(menu);
+  // Ved pekeren, men innenfor vinduet.
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - menu.offsetHeight - 4))}px`;
+}
+
+/** Flytter en fane til et nytt vindu. Bare når alt i fanen er lagret, så ingenting går tapt. */
+async function moveToNewWindow(tab: OpenDoc): Promise<void> {
+  if (organizer || hasUnsaved(tab) || !tabs.includes(tab)) return;
+  // Det nye vinduet åpner fila på siden som er husket.
+  rememberFile(tab.path, tab.name, tab === current ? viewer.current : tab.view.page);
+  try {
+    await openInNewWindow([tab.path]);
+  } catch (e) {
+    toast(`Kunne ikke åpne et nytt vindu: ${errorMessage(e)}`, "error");
+    return;
+  }
+  await closeTab(tab);
+}
+
 let tabsKey = "";
 /** Tegner fanelinja på nytt når noe i den er endret. */
 function renderTabs(): void {
+  if (tabDrag?.moved) return;
   const key = [organizer ? 1 : 0, current ? tabs.indexOf(current) : -1, ...tabs.map((t) => `${t.name}|${t.path}|${unsavedReasons(t).join()}`)].join("/");
   if (key === tabsKey) return;
   tabsKey = key;
@@ -973,9 +1066,17 @@ function renderTabs(): void {
         h("span", { class: "doc-tab-dot" }),
         close,
       );
+      el.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest(".tab-close")) return;
+        startTabDrag(t, el, e);
+        activate(t);
+      });
       el.addEventListener("mousedown", (e) => {
-        if (e.button === 0 && !(e.target as HTMLElement).closest(".tab-close")) activate(t);
         if (e.button === 1) e.preventDefault();
+      });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openTabMenu(t, e.clientX, e.clientY);
       });
       el.addEventListener("auxclick", (e) => {
         if (e.button === 1) void closeTab(t);
@@ -1074,6 +1175,12 @@ async function openScreenMenu(): Promise<void> {
   const r = screenBtn.getBoundingClientRect();
   menu.style.top = `${r.bottom + 6}px`;
   menu.style.right = `${window.innerWidth - r.right}px`;
+  const close = showPopover(menu);
+}
+
+/** Viser en liten meny som lukkes ved klikk utenfor eller Esc. Gir tilbake funksjonen som lukker den. */
+function showPopover(menu: HTMLElement): () => void {
+  document.querySelector(".popover")?.remove();
   document.body.append(menu);
   const close = () => {
     menu.remove();
@@ -1091,7 +1198,8 @@ async function openScreenMenu(): Promise<void> {
   };
   document.addEventListener("mousedown", outside, true);
   document.addEventListener("keydown", esc, true);
-  (menu.querySelector(".popover-item") as HTMLElement | null)?.focus();
+  (menu.querySelector(".popover-item:not(:disabled)") as HTMLElement | null)?.focus();
+  return close;
 }
 
 // ---------- Sorter sider ----------

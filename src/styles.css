@@ -223,6 +223,14 @@ select:focus-visible,
   font-weight: 600;
 }
 
+/* Fanen som dras for å endre rekkefølgen. */
+.doc-tab.dragging {
+  z-index: 1;
+  background: var(--chrome);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
 .doc-tab-name {
   flex: 1;
   min-width: 0;
@@ -1524,6 +1532,12 @@ input.range {
 .popover-item:focus-visible {
   background: var(--surface-2);
   outline: none;
+}
+
+.popover-item:disabled {
+  color: var(--muted);
+  background: none;
+  cursor: default;
 }
 
 .popover-item.active::before {

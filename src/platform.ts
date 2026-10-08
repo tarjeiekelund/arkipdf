@@ -6,7 +6,7 @@ import { availableMonitors, currentMonitor, getCurrentWindow, type Monitor } fro
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -138,8 +138,9 @@ export async function openFile(path: string): Promise<OpenedFile> {
 }
 
 /**
- * PDF-ene programmet ble startet med (dobbeltklikk, «Åpne med», eller flere
- * filer via «Send til»). `merge` er satt når ArkiPDF ble startet for å slå sammen.
+ * PDF-ene dette vinduet skal åpne når det starter (dobbeltklikk, «Åpne med»,
+ * flere filer via «Send til», eller en fane som er flyttet til et nytt vindu).
+ * `merge` er satt når ArkiPDF ble startet for å slå sammen.
  */
 export async function startupFiles(): Promise<{ files: string[]; merge: boolean }> {
   if (!isTauri) return { files: [], merge: false };
@@ -149,11 +150,17 @@ export async function startupFiles(): Promise<{ files: string[]; merge: boolean 
 
 /**
  * Filer som åpnes mens ArkiPDF allerede kjører (dobbeltklikk, «Send til»):
- * den nye oppstarten sender dem hit i stedet for å åpne et nytt vindu.
+ * den nye oppstarten sender dem til vinduet som sist hadde fokus.
  */
 export function onLaunchFiles(handler: (launch: { files: string[]; merge: boolean }) => void): void {
   if (!isTauri) return;
-  void listen<[boolean, string[]]>("open-files", (e) => handler({ merge: e.payload[0], files: e.payload[1] }));
+  void getCurrentWebviewWindow().listen<[boolean, string[]]>("open-files", (e) => handler({ merge: e.payload[0], files: e.payload[1] }));
+}
+
+/** Åpner filene i et nytt ArkiPDF-vindu. */
+export async function openInNewWindow(files: string[]): Promise<void> {
+  if (!isTauri) throw new Error("Flere vinduer finnes bare i Windows-appen.");
+  await invoke("open_window", { files });
 }
 
 /** `confirm` avgjør om vinduet får lukkes (f.eks. når noe ikke er lagret). */
