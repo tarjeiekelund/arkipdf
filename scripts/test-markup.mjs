@@ -2,7 +2,7 @@
 import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import assert from "node:assert/strict";
-import { cloudCurves, displayAxes, readMarkups, textCorners, toTextLocal, writeMarkups } from "../src/markup-pdf.ts";
+import { cloudCurves, displayAxes, displayRect, flattenSignatures, makeSignatureImage, readMarkups, rectAround, signatureAlpha, textCorners, toTextLocal, writeMarkups } from "../src/markup-pdf.ts";
 import { readMeasureData, writeMeasurements } from "../src/measure-pdf.ts";
 
 // Skyen: sammenhengende kurver, rundt hele rektangelet, buet utover.
@@ -73,5 +73,63 @@ assert.deepEqual(layers.asArray().map((r) => doc.context.lookup(r).lookup(PDFNam
 
 // Uten markeringer blir ingenting igjen.
 assert.equal((await readMarkups(await writeMarkups(again, []))).length, 0);
+
+// Signatur: rektangelet står rett slik siden vises, også på roterte sider.
+for (const rot of [0, 90, 180, 270]) {
+  const [a, b] = rectAround([300, 200], 120, 40, rot);
+  const r = displayRect(a, b, rot);
+  assert.deepEqual([r.w, r.h], [120, 40]);
+  const { ex, ey } = displayAxes(rot);
+  // Midten ligger en halv bredde mot høyre og en halv høyde ned fra øvre venstre hjørne.
+  assert.deepEqual([r.topLeft[0] + (ex[0] * 120 + ey[0] * 40) / 2, r.topLeft[1] + (ex[1] * 120 + ey[1] * 40) / 2], [300, 200]);
+}
+
+// Signaturen lagres som Stamp med bildet i utseendet, og leses tilbake uendret.
+{
+  const w = 60;
+  const h = 20;
+  const alpha = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) alpha[Math.round(10 + 8 * Math.sin(x / 6)) * w + x] = 255;
+  const img = await makeSignatureImage(alpha, w, h);
+  assert.deepEqual(await signatureAlpha(img), alpha);
+  const [a, b] = rectAround([400, 200], 150, 50, 90);
+  const signs = [
+    { page: 1, kind: "sign", points: [a, b], color: "blue", u, rot: 90, img },
+    { page: 0, kind: "sign", points: [[50, 50], [200, 100]], color: "black", u, rot: 0, img },
+  ];
+  const withSigns = await writeMarkups(base, [...items, ...signs]);
+  const read = await readMarkups(withSigns);
+  assert.equal(read.length, 5);
+  for (const s of signs) {
+    const r = read.find((m) => m.kind === "sign" && m.page === s.page);
+    assert.deepEqual(r, { ...s, text: undefined });
+  }
+  // Samme signatur to steder: én maske.
+  const sdoc = await PDFDocument.load(withSigns);
+  const masks = sdoc.context.enumerateIndirectObjects().filter(([, o]) => o.dict?.get(PDFName.of("ColorSpace"))?.toString() === "/DeviceGray");
+  assert.equal(masks.length, 1);
+
+  const spdf = await getDocument({ data: withSigns.slice() }).promise;
+  const stamp = (await (await spdf.getPage(2)).getAnnotations()).find((x) => x.subtype === "Stamp");
+  assert.ok(stamp, "signatur som Stamp");
+
+  // Lagres på nytt uten signaturene: bildene forsvinner fra fila.
+  const without = await writeMarkups(withSigns, items);
+  const wdoc = await PDFDocument.load(without);
+  assert.equal(wdoc.context.enumerateIndirectObjects().filter(([, o]) => o.dict?.get(PDFName.of("Subtype"))?.toString() === "/Image").length, 0);
+
+  // Låst kopi: signaturene blir sideinnhold, andre markeringer står som før.
+  const flat = await flattenSignatures(withSigns);
+  assert.equal(flat.count, 2);
+  const fread = await readMarkups(flat.bytes);
+  assert.equal(fread.filter((m) => m.kind === "sign").length, 0);
+  assert.equal(fread.length, 3);
+  const fpdf = await getDocument({ data: flat.bytes.slice() }).promise;
+  const ops = await (await fpdf.getPage(1)).getOperatorList();
+  assert.ok(ops.fnArray.length > 0);
+  const fdoc = await PDFDocument.load(flat.bytes);
+  const xo = fdoc.getPage(0).node.Resources().lookup(PDFName.of("XObject"));
+  assert.ok(xo.keys().some((k) => k.toString().startsWith("/ArkiSig")), "signaturen tegnes fra sidens innhold");
+}
 
 console.log("markup: OK");
