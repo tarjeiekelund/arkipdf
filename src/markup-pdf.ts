@@ -2,8 +2,10 @@
 //
 // Markeringene skrives som vanlige PDF-kommentarer, slik at de vises og kan
 // redigeres i Acrobat, Bluebeam, Edge o.l.: sky som Square med skykant (BE /C),
-// pil som Line med pilspiss, tekst som FreeText og signatur som Stamp med
-// signaturen som bilde (blekkfarge med gjennomsiktighet). Alle får ferdig tegnet
+// pil som Line med pilspiss, tekst som FreeText, signatur som Stamp med
+// signaturen som bilde (blekkfarge med gjennomsiktighet), og markert,
+// understreket og gjennomstreket tekst som Highlight, Underline og StrikeOut
+// med QuadPoints. Alle får ferdig tegnet
 // utseende og legges i laget «Merknader (ArkiPDF)», som ArkiPDF skjuler i sin
 // egen visning og tegner redigerbart i stedet. Dataene leses fra nøkkelen
 // «ArkiPDFMarkup».
@@ -32,6 +34,7 @@ import {
   rectangle,
   setFillingRgbColor,
   setFontAndSize,
+  setGraphicsState,
   setLineCap,
   setLineJoin,
   setLineWidth,
@@ -51,14 +54,32 @@ export function isMarkupLayer(name: string | null | undefined): boolean {
   return name === MARKUP_LAYER;
 }
 
-export type MarkupKind = "cloud" | "arrow" | "text" | "sign";
-export type MarkupColor = "red" | "blue" | "black";
+export type TextMarkupKind = "highlight" | "underline" | "strike";
+export type MarkupKind = "cloud" | "arrow" | "text" | "sign" | TextMarkupKind;
+export type MarkupColor = "red" | "orange" | "yellow" | "green" | "blue" | "black";
 
 export const COLORS: Record<MarkupColor, { rgb: [number, number, number]; css: string; name: string }> = {
   red: { rgb: [0.85, 0.16, 0.12], css: "#d9291f", name: "Rød" },
+  orange: { rgb: [0.95, 0.55, 0.1], css: "#f28c1a", name: "Oransje" },
+  yellow: { rgb: [0.98, 0.84, 0.1], css: "#fad61a", name: "Gul" },
+  green: { rgb: [0.2, 0.68, 0.25], css: "#33ad40", name: "Grønn" },
   blue: { rgb: [0.08, 0.4, 0.85], css: "#1466d9", name: "Blå" },
   black: { rgb: [0.1, 0.1, 0.1], css: "#1a1a1a", name: "Svart" },
 };
+
+/** Fargene for markert, understreket og gjennomstreket tekst (som i en penal). */
+export const TEXT_COLORS: MarkupColor[] = ["red", "orange", "yellow", "green", "blue"];
+
+export const isTextMarkup = (k: MarkupKind): k is TextMarkupKind => k === "highlight" || k === "underline" || k === "strike";
+
+/** Markeringsfargen: lys nok til at teksten under synes (tegnes med «multipliser»). */
+export function highlightRgb(c: MarkupColor): [number, number, number] {
+  return COLORS[c].rgb.map((v) => 1 - (1 - v) * 0.55) as [number, number, number];
+}
+
+export function highlightCss(c: MarkupColor): string {
+  return `#${highlightRgb(c).map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("")}`;
+}
 
 /** Signaturen som bilde: hvor mye blekk det er i hver piksel. */
 export interface SignatureImage {
@@ -71,7 +92,11 @@ export interface SignatureImage {
 export interface StoredMarkup {
   page: number;
   kind: MarkupKind;
-  /** Sky og signatur: to motsatte hjørner. Pil: fra og til (spissen). Tekst: øvre venstre hjørne. */
+  /**
+   * Sky og signatur: to motsatte hjørner. Pil: fra og til (spissen). Tekst: øvre venstre hjørne.
+   * Markert tekst: fire hjørner per linje (øvre venstre, øvre høyre, nedre venstre, nedre høyre
+   * slik teksten står), samme rekkefølge som QuadPoints.
+   */
   points: Pt[];
   color: MarkupColor;
   /** Størrelsesenhet i punkter (sidens diagonal / 1000), så markeringen passer arket. */
@@ -224,6 +249,27 @@ export function rectAround(c: Pt, w: number, h: number, rot: number | undefined)
   return [[c[0] - hx, c[1] - hy], [c[0] + hx, c[1] + hy]];
 }
 
+/** Linjene i markert tekst: fire hjørner hver (se `StoredMarkup.points`). */
+export function quadsOf(points: Pt[]): Array<[Pt, Pt, Pt, Pt]> {
+  const out: Array<[Pt, Pt, Pt, Pt]> = [];
+  for (let i = 0; i + 3 < points.length; i += 4) out.push([points[i], points[i + 1], points[i + 2], points[i + 3]]);
+  return out;
+}
+
+const lerp = (a: Pt, b: Pt, t: number): Pt => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+/**
+ * Streken under eller gjennom en linje: fra og til, og tykkelsen. Rektanglene
+ * fra tekstlaget går fra under nedstrekene til over versalene, så grunnlinjen
+ * ligger omtrent en femdel opp og midten av småbokstavene litt under midten.
+ */
+export function textLine(q: [Pt, Pt, Pt, Pt], kind: "underline" | "strike"): { a: Pt; b: Pt; width: number } {
+  const [tl, tr, bl, br] = q;
+  const t = kind === "underline" ? 0.12 : 0.42;
+  const h = Math.hypot(tl[0] - bl[0], tl[1] - bl[1]);
+  return { a: lerp(bl, tl, t), b: lerp(br, tr, t), width: Math.max(0.5, h * 0.07) };
+}
+
 // ---------- Signaturbildet ----------
 
 export function toBase64(bytes: Uint8Array): string {
@@ -260,7 +306,7 @@ export async function makeSignatureImage(alpha: Uint8Array, w: number, h: number
 
 // ---------- Lesing og skriving ----------
 
-const KINDS: MarkupKind[] = ["cloud", "arrow", "text", "sign"];
+const KINDS: MarkupKind[] = ["cloud", "arrow", "text", "sign", "highlight", "underline", "strike"];
 
 /** Leser markeringer som ArkiPDF har lagret i fila. */
 export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
@@ -278,6 +324,7 @@ export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
         if (!KINDS.includes(d.kind) || !Array.isArray(d.points) || !(d.u > 0)) continue;
         const points = (d.points as unknown[]).filter((p): p is Pt => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
         if (points.length < (d.kind === "text" ? 1 : 2)) continue;
+        if (isTextMarkup(d.kind) && (points.length < 4 || points.length % 4)) continue;
         if (d.kind === "text" && (typeof d.text !== "string" || !d.text.trim())) continue;
         const item: StoredMarkup = {
           page: index,
@@ -285,7 +332,7 @@ export async function readMarkups(bytes: Uint8Array): Promise<StoredMarkup[]> {
           points,
           color: d.color in COLORS ? d.color : "red",
           u: d.u,
-          text: d.kind === "text" ? d.text : undefined,
+          text: d.kind === "text" || (isTextMarkup(d.kind) && typeof d.text === "string") ? d.text : undefined,
           rot: Number.isFinite(d.rot) ? d.rot : 0,
         };
         if (d.kind === "sign") {
@@ -418,7 +465,33 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
       [KEY]: PDFHexString.fromText(JSON.stringify({ v: 1, kind: m.kind, points: m.points, color: m.color, u: m.u, text: m.text, rot: m.rot })),
     };
 
-    if (m.kind === "sign") {
+    if (isTextMarkup(m.kind)) {
+      const quads = quadsOf(m.points);
+      if (!quads.length) return;
+      const all = quads.flat();
+      if (m.kind === "highlight") {
+        const c = highlightRgb(m.color);
+        ops.push(setGraphicsState("Mul"), setFillingRgbColor(...c));
+        // Hjørnene rundt: øvre venstre, øvre høyre, nedre høyre, nedre venstre.
+        for (const [tl, tr, bl, br] of quads) ops.push(moveTo(...tl), lineTo(...tr), lineTo(...br), lineTo(...bl), closePath(), fill());
+        resources.ExtGState = { Mul: { Type: "ExtGState", BM: "Multiply" } };
+        dict.C = c;
+      } else {
+        ops.push(setStrokingRgbColor(...color));
+        for (const q of quads) {
+          const l = textLine(q, m.kind);
+          ops.push(setLineWidth(l.width), moveTo(...l.a), lineTo(...l.b), stroke());
+        }
+      }
+      const xs = all.map((p) => p[0]);
+      const ys = all.map((p) => p[1]);
+      bbox = [Math.min(...xs) - 1, Math.min(...ys) - 1, Math.max(...xs) + 1, Math.max(...ys) + 1];
+      Object.assign(dict, {
+        Subtype: m.kind === "highlight" ? "Highlight" : m.kind === "underline" ? "Underline" : "StrikeOut",
+        QuadPoints: all.flat(),
+        Contents: PDFHexString.fromText(m.text ?? ""),
+      });
+    } else if (m.kind === "sign") {
       if (!m.img) return;
       const [a, b] = m.points;
       const r = displayRect(a, b, m.rot);
@@ -486,7 +559,7 @@ export async function writeMarkups(bytes: Uint8Array, items: StoredMarkup[]): Pr
     const stream = ctx.formXObject(ops, { BBox: bbox, Matrix: [1, 0, 0, 1, 0, 0], Resources: resources as never });
     dict.Rect = bbox;
     dict.AP = { N: ctx.register(stream) };
-    if (m.kind !== "text") dict.Contents = PDFHexString.fromText(m.kind === "cloud" ? "Sky" : m.kind === "arrow" ? "Pil" : "Signatur");
+    if (m.kind === "cloud" || m.kind === "arrow" || m.kind === "sign") dict.Contents = PDFHexString.fromText(m.kind === "cloud" ? "Sky" : m.kind === "arrow" ? "Pil" : "Signatur");
     page.node.addAnnot(ctx.register(ctx.obj(dict as never)));
   });
   return doc.save();
