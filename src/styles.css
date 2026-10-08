@@ -2076,23 +2076,30 @@ input.range {
 
 .m-shape {
   fill: none;
-  stroke: #d9480f;
+  stroke: var(--mc, #d9480f);
   stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
 .m-shape.area {
-  fill: rgb(217 72 15 / 0.12);
+  fill: color-mix(in srgb, var(--mc, #d9480f) 12%, transparent);
 }
 
+/* Valgt mål beholder fargen sin, men får tykkere strek og en blå glorie. */
 .m-shape.selected {
-  stroke: #1c7ed6;
   stroke-width: 3px;
+  filter: drop-shadow(0 0 1.5px rgb(28 126 214 / 0.9));
 }
 
 .m-shape.area.selected {
-  fill: rgb(28 126 214 / 0.14);
+  fill: color-mix(in srgb, var(--mc, #d9480f) 20%, transparent);
+}
+
+.m-shape.radius {
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  filter: none;
 }
 
 .m-shape.preview {
@@ -2116,7 +2123,7 @@ input.range {
   margin: -3.5px 0 0 -3.5px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 2px #d9480f;
+  box-shadow: 0 0 0 2px var(--mc, #d9480f);
 }
 
 /* Punktene på valgt mål er håndtak som kan dras. */
@@ -2137,7 +2144,7 @@ input.range {
   padding: 2px 7px;
   border-radius: 5px;
   background: #fff;
-  box-shadow: 0 0 0 1.5px #d9480f, 0 2px 6px rgb(0 0 0 / 0.18);
+  box-shadow: 0 0 0 1.5px var(--mc, #d9480f), 0 2px 6px rgb(0 0 0 / 0.18);
   color: #141816;
   font-size: 12px;
   font-weight: 700;
@@ -2145,6 +2152,78 @@ input.range {
   white-space: nowrap;
   pointer-events: auto;
   cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-label-name {
+  font-size: 11px;
+  color: var(--mc, #d9480f);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Lengden på hver side av valgt mål (og mens man tegner). */
+.measure-seg {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: 0 0 0 1px var(--mc, #d9480f);
+  color: #141816;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure-seg.edit {
+  pointer-events: auto;
+  cursor: text;
+}
+
+.measure-seg.edit:hover {
+  box-shadow: 0 0 0 2px #1c7ed6;
+}
+
+.viewer.m-drawing .measure-seg {
+  pointer-events: none;
+}
+
+.measure-seg-input {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 76px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #1c7ed6, 0 2px 6px rgb(0 0 0 / 0.2);
+  background: #fff;
+  color: #141816;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+/* Mål som skrives inn mens man tegner. */
+.measure-typed {
+  position: absolute;
+  transform: translate(14px, 10px);
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #1c7ed6;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2159,6 +2238,7 @@ input.range {
 }
 
 .measure-label.selected {
+  z-index: 1;
   box-shadow: 0 0 0 2px #1c7ed6, 0 2px 6px rgb(0 0 0 / 0.18);
 }
 
@@ -2207,12 +2287,117 @@ input.range {
 }
 
 .measure-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 4px 4px 4px 8px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.measure-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.measure-name-tag {
+  margin-right: 6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Navn, farge og verktøy for valgt mål. */
+.measure-props {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 2px 28px;
+  cursor: default;
+}
+
+.measure-name {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.measure-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.measure-tools .btn {
+  height: 28px;
+  padding: 0 6px;
+}
+
+.m-color {
+  position: relative;
+  display: inline-flex;
+}
+
+.m-color-btn {
+  padding: 0 8px;
+}
+
+.m-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  flex: none;
+}
+
+.m-swatch.small {
+  width: 10px;
+  height: 10px;
+}
+
+button.m-swatch {
+  cursor: pointer;
+}
+
+button.m-swatch:hover,
+button.m-swatch.active {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.m-swatches {
+  display: flex;
+  gap: 8px;
+  padding: 3px 2px;
+}
+
+.m-palette {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(4, 16px);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.m-palette[hidden] {
+  display: none;
+}
+
+.unit-label {
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .measure-list li:hover {

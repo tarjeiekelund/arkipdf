@@ -63,6 +63,28 @@ const renamed = await writeMeasurements(await old.save(), items.slice(0, 1), new
 const names = [...(await (await getDocument({ data: renamed.slice() }).promise).getOptionalContentConfig())].map(([, g]) => g.name);
 assert.deepEqual(names.filter(isMeasureLayer), [LAYER_NAME]);
 assert.equal((await readMeasureData(renamed)).measurements.length, 1);
+// Navn, farge og sirkel lagres og leses inn igjen; sirkelen er et polygon for andre programmer.
+const named = await writeMeasurements(original, [
+  { ...items[1], name: "BYA", color: "#2b8a3e" },
+  { page: 0, kind: "circle", points: [[500, 500], [600, 500]], fixed: null, metersPerPoint: k, scaleLabel: "1:100", text: "11,08 m²", subText: "r 3,53 m", name: "Sone 😀" },
+], new Map(), null);
+const nb = await readMeasureData(named);
+assert.deepEqual(nb.measurements.map((m) => [m.kind, m.name, m.color, m.points.length]), [["area", "BYA", "#2b8a3e", 4], ["circle", "Sone 😀", undefined, 2]]);
+const na = await (await (await getDocument({ data: named.slice() }).promise).getPage(1)).getAnnotations();
+assert.ok(na.some((a) => a.contentsObj?.str === "BYA: 23,89 m² (omkrets 19,76 m)"));
+const circ = na.find((a) => a.subtype === "Polygon" && a.vertices?.length > 10);
+assert.ok(circ, "sirkelen lagres som polygon");
+assert.deepEqual([...na.find((a) => a.contentsObj?.str.startsWith("BYA")).color], [0x2b, 0x8a, 0x3e]);
+// Sidemål tegnes i utseendet: én tekst per side i tillegg til etiketten.
+const sided = await writeMeasurements(original, [{ ...items[1], sideTexts: ["5,64 m", "4,23 m", "5,64 m", "4,23 m"] }], new Map(), null);
+const sidedOps = await (await (await getDocument({ data: sided.slice() }).promise).getPage(1)).getOperatorList();
+const plainOps = await (await (await getDocument({ data: (await writeMeasurements(original, [items[1]], new Map(), null)).slice() }).promise).getPage(1)).getOperatorList();
+const texts = (ol) => ol.fnArray.filter((f) => f === OPS.showText).length;
+assert.equal(texts(sidedOps) - texts(plainOps), 4);
+// Korte sider får ingen sidemål.
+const tiny = await writeMeasurements(original, [{ ...items[1], points: [[100, 100], [110, 100], [110, 108], [100, 108]], sideTexts: ["0,35 m", "0,28 m", "0,35 m", "0,28 m"] }], new Map(), null);
+const tinyOps = await (await (await getDocument({ data: tiny.slice() }).promise).getPage(1)).getOperatorList();
+assert.equal(texts(tinyOps), texts(plainOps));
 // Ingen mål igjen: kommentarene fjernes helt.
 const empty = await writeMeasurements(again, [], new Map(), null);
 assert.equal((await readMeasureData(empty)).measurements.length, 0);

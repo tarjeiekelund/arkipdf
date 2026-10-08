@@ -53,6 +53,8 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
 | **Avstand** (D) | Klikk start- og sluttpunkt |
 | **Lengde** (L) | Klikk flere punkter; dobbeltklikk eller Enter avslutter. Gir summen av alle segmentene |
 | **Areal** (A) | Klikk hjørnene; klikk startpunktet, dobbeltklikk eller Enter lukker. Viser også omkrets |
+| **Rektangel** (R) | Klikk første side (to hjørner), og klikk så for bredden. Rektangelet kan ligge skrått, og blir et vanlig areal |
+| **Sirkel** (S) | Klikk sentrum og et punkt på omkretsen. Viser areal og radius – f.eks. en sone 4 m fra et punkt |
 
 - **Målestokk:** Har PDF-en innebygd målestokk (som Revit, ArchiCAD og
   AutoCAD legger inn), brukes den automatisk. Det vises som «Fra PDF: 1:100».
@@ -64,18 +66,39 @@ Trykk **M** (eller knappen **Mål**) for å måle på tegningen.
   linjer i tegningen (i den rekkefølgen) når du klikker nær dem. En blå
   markør viser hva punktet festes til. Hold **Alt** for å slå det av
   midlertidig, eller fjern haken ved «Fest til tegningen».
-- **Shift** låser retningen til 0°, 45° og 90°.
+- **Shift** låser første side til 0°, 45° og 90° på arket, og de neste
+  sidene til 90° på forrige side – også når bygget ligger skrått. For areal
+  festes punktet der figuren kan lukkes rett.
+- **Skriv inn mål:** mens du tegner, skriv lengden (f.eks. `12,5`) og trykk
+  Enter. Neste punkt havner så langt unna i retningen musa peker. Det samme
+  gjelder bredden på et rektangel og radien på en sirkel.
+- Lengden på hver side vises mens du tegner, og når målet er valgt.
 - Backspace fjerner siste punkt, Esc avbryter.
 - **Endre et mål:** klikk etiketten (eller inne i et areal) for å velge målet.
   Dra i punktene for å flytte dem; de festes til tegningen som når du måler.
+  Hold **Shift** for å holde hjørnene ved siden av på 90°. Dra i en kant for
+  å flytte den parallelt; nabosidene beholder retningen (slik gjør du et
+  rektangel større eller mindre). Klikk på lengden til en side for å skrive inn en ny lengde.
   Dobbeltklikk på kanten av et lengde- eller arealmål for å legge til et
   punkt. Dra etiketten for å flytte hele målet. Delete eller Backspace sletter det
   valgte målet, og Ctrl+Z angrer siste endring.
+- **Navn og farge:** velg målet i lista for å gi det et navn (f.eks. «BYA»)
+  og en farge. Fargeknappen i verktøylinja velger farge for nye mål. Areal
+  med samme navn summeres i lista.
+- **Forskyv kontur:** lager en kopi (eller flytter målet) et gitt mål utover
+  eller innover, f.eks. byggegrense 4 m fra nabogrensen eller takutstikk.
+  Forhåndsvisningen vises stiplet.
+- **Kopiere, speile og rotere:** Ctrl+D dupliserer, Ctrl+C / Ctrl+V kopierer
+  (også til en annen side, på samme sted), og **Kopier til andre sider**
+  legger målet på flere sider samtidig, f.eks. samme fotavtrykk på alle
+  etasjeplanene. Speil vannrett eller loddrett, roter 90° eller et valgfritt
+  antall grader.
 - Lista nederst til høyre viser alle målene med sum av areal og lengder.
   **Kopier som tabell** gir en tabell du kan lime rett inn i Excel.
 - Mellomrom og midtre musetast flytter tegningen også mens du måler.
 - **Lagre i fila** (knappen i lista, eller Ctrl+S mens du måler) skriver
-  målene inn i PDF-en som vanlige målekommentarer, med linjer og tall. De
+  målene inn i PDF-en som vanlige målekommentarer, med linjer, farge, navn og tall
+  (også lengden på hver side av lengde- og arealmål). De
   vises da også i Acrobat, Bluebeam og andre PDF-lesere, samlet i laget
   «Mål (ArkiPDF)» som kan slås av og på der. Neste gang fila åpnes i ArkiPDF,
   kan målene redigeres igjen, og målestokkvalgene er husket. ArkiPDF spør før
@@ -252,7 +275,7 @@ Hadde du installert appen mens den het Blad, installeres ArkiPDF ved siden
 av. Avinstaller Blad under *Innstillinger → Apper*. Innstillinger som
 «Nylig åpnet» blir med over.
 
-Lager du en tagg som `v0.6.0` og pusher den, blir installeren i tillegg
+Lager du en tagg som `v0.7.0` og pusher den, blir installeren i tillegg
 lagt ut som en GitHub-release.
 
 ### Nye versjoner
