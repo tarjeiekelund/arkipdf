@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, EventTarget, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 /// Leser en fil og sender bytene rått til webvisningen (ingen JSON-omvei).
 #[tauri::command]
@@ -79,37 +82,97 @@ async fn convert_office(path: String) -> Result<Response, String> {
 /// PDF-ene i en kommandolinje (uten programnavnet) fra dobbeltklikk, «Åpne
 /// med» eller flere markerte filer via «Send til». Første verdi er `true`
 /// når ArkiPDF ble startet med `--merge` for å slå sammen.
-fn launch_files(args: impl Iterator<Item = String>) -> (bool, Vec<String>) {
-    let args: Vec<String> = args.collect();
+fn launch_files(args: &[String]) -> (bool, Vec<String>) {
     let merge = args.iter().any(|a| a == "--merge");
     let files = args
-        .into_iter()
+        .iter()
         .filter(|a| !a.starts_with('-') && office::openable(a))
+        .cloned()
         .collect();
     (merge, files)
 }
 
-/// Filene programmet ble startet med.
+/// Vinduene: filene hvert nytt vindu skal åpne, og hvilket vindu som sist
+/// hadde fokus (dit går filer som åpnes mens ArkiPDF kjører).
+#[derive(Default)]
+struct Windows {
+    pending: Mutex<HashMap<String, (bool, Vec<String>)>>,
+    focused: Mutex<String>,
+    count: AtomicUsize,
+}
+
+/// Filene vinduet skal åpne når det starter (bare første gang det spør).
 #[tauri::command]
-fn startup_files() -> (bool, Vec<String>) {
-    launch_files(std::env::args().skip(1))
+fn startup_files(window: WebviewWindow, state: tauri::State<'_, Windows>) -> (bool, Vec<String>) {
+    state.pending.lock().unwrap().remove(window.label()).unwrap_or_default()
+}
+
+/// Åpner filene i et nytt ArkiPDF-vindu i samme prosess.
+fn new_window(app: &AppHandle, launch: (bool, Vec<String>)) -> tauri::Result<()> {
+    let state = app.state::<Windows>();
+    let label = format!("vindu-{}", state.count.fetch_add(1, Ordering::Relaxed) + 1);
+    state.pending.lock().unwrap().insert(label.clone(), launch);
+    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+        .title("ArkiPDF")
+        .inner_size(1200.0, 850.0)
+        .min_inner_size(640.0, 420.0)
+        .build();
+    if built.is_err() {
+        state.pending.lock().unwrap().remove(&label);
+    }
+    built.map(|_| ())
+}
+
+/// Høyreklikk på en fane → «Åpne i nytt vindu».
+#[tauri::command]
+async fn open_window(app: AppHandle, files: Vec<String>) -> Result<(), String> {
+    new_window(&app, (false, files)).map_err(|e| e.to_string())
+}
+
+/// Et nytt oppstart av ArkiPDF mens det allerede kjører: med `--new-window`
+/// («Åpne i nytt ArkiPDF-vindu» i Utforsker) får filene et eget vindu,
+/// ellers åpnes de i faner i vinduet som sist hadde fokus.
+fn relaunched(app: &AppHandle, argv: Vec<String>) {
+    let args = &argv[argv.len().min(1)..];
+    let launch = launch_files(args);
+    if args.iter().any(|a| a == "--new-window") {
+        // Vinduer kan ikke lages direkte herfra i Windows (vranglås), så det gjøres i bakgrunnen.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = new_window(&app, launch);
+        });
+        return;
+    }
+    let focused = app.state::<Windows>().focused.lock().unwrap().clone();
+    let windows = app.webview_windows();
+    let Some(w) = windows.get(&focused).or_else(|| windows.get("main")).or_else(|| windows.values().next()) else {
+        return;
+    };
+    let _ = app.emit_to(EventTarget::webview_window(w.label()), "open-files", launch);
+    let _ = w.unminimize();
+    let _ = w.set_focus();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let first: Vec<String> = std::env::args().skip(1).collect();
+    let windows = Windows::default();
+    windows.pending.lock().unwrap().insert("main".into(), launch_files(&first));
+    *windows.focused.lock().unwrap() = "main".into();
+
     tauri::Builder::default()
-        // Ett vindu: åpnes ArkiPDF på nytt (f.eks. dobbeltklikk på en PDF),
-        // sendes filene til vinduet som er åpent, som åpner dem i faner.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let _ = app.emit("open-files", launch_files(argv.into_iter().skip(1)));
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }))
+        // Én prosess: åpnes ArkiPDF på nytt (f.eks. dobbeltklikk på en PDF),
+        // sendes filene hit, som åpner dem i faner eller i et nytt vindu.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| relaunched(app, argv)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, startup_files, read_font, convert_office])
+        .manage(windows)
+        .on_window_event(|window, event| {
+            if let WindowEvent::Focused(true) = event {
+                *window.state::<Windows>().focused.lock().unwrap() = window.label().to_string();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![read_file, write_file, startup_files, open_window, read_font, convert_office])
         .run(tauri::generate_context!())
         .expect("ArkiPDF kunne ikke starte");
 }
