@@ -1,6 +1,6 @@
 [package]
 name = "blad"
-version = "0.8.0"
+version = "0.8.1"
 description = "ArkiPDF – PDF-leser for tegninger"
 edition = "2021"
 

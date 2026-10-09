@@ -2,7 +2,7 @@
 import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import assert from "node:assert/strict";
-import { cloudCurves, displayAxes, displayRect, flattenSignatures, makeSignatureImage, readMarkups, rectAround, signatureAlpha, textCorners, toTextLocal, writeMarkups } from "../src/markup-pdf.ts";
+import { cloudCurves, displayAxes, displayRect, flattenSignatures, quadsOf, textLine, makeSignatureImage, readMarkups, rectAround, signatureAlpha, textCorners, toTextLocal, writeMarkups } from "../src/markup-pdf.ts";
 import { readMeasureData, writeMeasurements } from "../src/measure-pdf.ts";
 
 // Skyen: sammenhengende kurver, rundt hele rektangelet, buet utover.
@@ -130,6 +130,31 @@ for (const rot of [0, 90, 180, 270]) {
   const fdoc = await PDFDocument.load(flat.bytes);
   const xo = fdoc.getPage(0).node.Resources().lookup(PDFName.of("XObject"));
   assert.ok(xo.keys().some((k) => k.toString().startsWith("/ArkiSig")), "signaturen tegnes fra sidens innhold");
+}
+
+// Markert, understreket og gjennomstreket tekst: vanlige tekstkommentarer med QuadPoints.
+{
+  const line = (x0, x1, y0, y1) => [[x0, y1], [x1, y1], [x0, y0], [x1, y0]];
+  const marks = [
+    { page: 0, kind: "highlight", points: [...line(50, 200, 495, 530), ...line(50, 120, 455, 490)], color: "yellow", u, text: "A1 og litt til" },
+    { page: 0, kind: "underline", points: line(300, 400, 495, 530), color: "red", u, text: "under" },
+    { page: 1, kind: "strike", points: line(60, 160, 100, 120), color: "green", u, text: "strøket" },
+  ];
+  assert.equal(quadsOf(marks[0].points).length, 2);
+  // Streken under ligger nær bunnen, streken gjennom omtrent midt i småbokstavene.
+  const q = quadsOf(marks[1].points)[0];
+  assert.ok(textLine(q, "underline").a[1] < textLine(q, "strike").a[1]);
+  const saved2 = await writeMarkups(base, [...items, ...marks]);
+  const back2 = await readMarkups(saved2);
+  for (const m of marks) assert.deepEqual(back2.find((x) => x.kind === m.kind), { ...m, rot: 0 });
+  const pdf2 = await getDocument({ data: saved2.slice() }).promise;
+  const an = (await (await pdf2.getPage(1)).getAnnotations()).filter((a) => ["Highlight", "Underline"].includes(a.subtype));
+  assert.deepEqual(an.map((a) => a.subtype).sort(), ["Highlight", "Underline"]);
+  const hl = an.find((a) => a.subtype === "Highlight");
+  assert.equal(hl.quadPoints.length, 2 * 8);
+  assert.equal(hl.contentsObj?.str ?? hl.contents, "A1 og litt til");
+  const so = (await (await pdf2.getPage(2)).getAnnotations()).find((a) => a.subtype === "StrikeOut");
+  assert.ok(so, "gjennomstreket som StrikeOut");
 }
 
 console.log("markup: OK");
