@@ -7,6 +7,7 @@ import { openExportDialog } from "./exportpng";
 import { browserCodec } from "./compress";
 import { copyMarkupDoc, Markup, reorderMarkupDoc, type MarkupDoc } from "./markup";
 import { flattenSignatures } from "./markup-pdf";
+import { TextMenu, type EraseArea } from "./textmenu";
 import { copyMeasureDoc, Measure, reorderMeasureDoc, type MeasureDoc } from "./measure";
 import { openMergeDialog } from "./merge";
 import { Organizer } from "./organize";
@@ -37,7 +38,7 @@ import { openPrintDialog } from "./print";
 import { openShrinkDialog } from "./shrink";
 import { checkForUpdates } from "./update";
 import { Redactor } from "./redact";
-import { redactPdf, type RedactArea } from "./redact-pdf";
+import { eraseText, redactPdf, type RedactArea } from "./redact-pdf";
 import { Search } from "./search";
 import { TextEditor } from "./textedit";
 import { loadForRuns, replaceLine, textRuns, type TextLine } from "./textedit-pdf";
@@ -156,6 +157,14 @@ measure.onSave = () => saveAnnotations();
 markup.onSave = () => saveAnnotations();
 markup.onSaveLocked = () => saveFlattened();
 
+// Høyreklikk på markert tekst: kopier, marker, understrek, gjennomstrek, slett.
+const textMenu = new TextMenu(markup);
+textMenu.onErase = (areas) => void applyErase(areas);
+viewer.el.addEventListener("contextmenu", (e) => {
+  if (!current || typing(e.target)) return;
+  if (textMenu.handle(e, viewer.el)) e.preventDefault();
+});
+
 /** Måling, markering og tekstredigering er hver sin modus; bare én er på om gangen. */
 function toggleMeasure(): void {
   closeModes(measure);
@@ -223,6 +232,29 @@ async function applyRedaction(areas: RedactArea[]): Promise<boolean> {
   } catch (e) {
     toast(`Kunne ikke sladde: ${errorMessage(e)}`, "error");
     return false;
+  } finally {
+    b.done();
+  }
+}
+
+/** «Slett tekst»: tegnene fjernes fra fila (i minnet, så Ctrl+Z angrer til man lagrer). */
+async function applyErase(areas: EraseArea[]): Promise<void> {
+  const tab = current;
+  if (!tab || !areas.length) return;
+  const b = busy("Sletter teksten…");
+  try {
+    await bakeForms(tab);
+    const { bytes, stats } = await eraseText(tab.bytes, areas);
+    if (current !== tab) return;
+    if (!stats.glyphs) {
+      toast("Fant ingen tekst å slette her. Tekst som er tegnet som streker (vanlig i CAD-eksport), er ikke tekst.", "info");
+      return;
+    }
+    await replaceContent(tab, bytes, Array.from({ length: tab.doc.numPages }, (_, i) => i), viewer.current);
+    showCurrent();
+    toast("Teksten er slettet. Ctrl+Z angrer.", "success");
+  } catch (e) {
+    toast(`Kunne ikke slette teksten: ${errorMessage(e)}`, "error");
   } finally {
     b.done();
   }
@@ -1575,8 +1607,10 @@ window.addEventListener("keydown", (e) => {
   else if (ctrl && k === "w") void closeTab(current);
   else if (ctrl && (e.key === "Tab" || e.key === "PageDown" || e.key === "PageUp")) cycleTab(e.key === "PageUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1);
   else if (ctrl && k === "s") void saveDoc(e.shiftKey);
-  // I et skjemafelt angrer Ctrl+Z skrivingen, ikke sideendringer.
-  else if (ctrl && k === "z" && !typing(e.target) && current.pageHistory.length) void undoPages();
+  // I et skjemafelt angrer Ctrl+Z skrivingen, ikke sideendringer. Siste tekstmarkering angres først.
+  else if (ctrl && k === "z" && !typing(e.target) && (markup.state.quick.length || current.pageHistory.length)) {
+    if (!markup.undoQuick()) void undoPages();
+  }
   else if (ctrl && k === "f") search.open();
   else if (e.key === "F3") search.step(e.shiftKey ? -1 : 1);
   else if (e.key === "Escape" && search.isOpen) search.close();

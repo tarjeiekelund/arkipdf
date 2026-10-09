@@ -24,6 +24,7 @@ Appen het tidligere Blad. Mål som er lagret i PDF-er med Blad, leses som før.
 | Søke i teksten | **Ctrl+F**. Treffene markeres i dokumentet. Enter/F3 går til neste, Shift+Enter/Shift+F3 til forrige |
 | Skrive ut | **Ctrl+P**. Se [Utskrift](#utskrift) |
 | Markere med sky, pil og tekst | **K**. Se [Markering](#markering) |
+| Markere, understreke, gjennomstreke og slette tekst | Marker teksten og høyreklikk. Se [Høyreklikk på tekst](#høyreklikk-på-tekst) |
 | Signere | Knappen **Signer**. Tegn signaturen eller hent den fra et bilde, og klikk der den skal stå. Se [Signatur](#signatur) |
 | Redigere tekst | **E** (knappen **Rediger**). Se [Redigere tekst](#redigere-tekst) |
 | Sladde | Knappen **Sladd**. Innholdet fjernes fra fila for godt. Se [Sladding](#sladding) |
@@ -175,6 +176,34 @@ og trykk **Sladd**.
   boksen. Tekst som er tegnet som streker (vanlig i CAD-eksport), er figurer:
   merk hele teksten, så fjernes den. Bokmerker og filnavn endres ikke.
 
+### Høyreklikk på tekst
+
+Marker tekst i PDF-en (som når du kopierer) og høyreklikk:
+
+| Valg | Virkning |
+| --- | --- |
+| **Kopier** | Kopierer teksten, som Ctrl+C |
+| **Marker** | Legger farge over teksten, som en markeringstusj |
+| **Understrek** | Streker under teksten |
+| **Gjennomstrek** | Streker over teksten |
+| **Slett tekst** | Fjerner teksten fra fila |
+
+- Fargen står i sirkelen til høyre. Hold musa over sirkelen for å velge en
+  annen (rød, oransje, gul, grønn eller blå). Klikk på linja for å bruke
+  fargen som står der. Fargen huskes for hvert av de tre valgene.
+- Markeringen kan gå over flere linjer og sider.
+- **Høyreklikk på en markering** for å endre fargen eller fjerne den. Med
+  **Merk** (K) på kan du også klikke den, så står den i lista og kan
+  slettes med Delete.
+- Ctrl+Z angrer. Markeringene lagres med Ctrl+S, som vanlige kommentarer
+  (Highlight, Underline og StrikeOut) som vises og kan endres i Acrobat,
+  Bluebeam, Edge og andre PDF-lesere.
+- **Slett tekst** fjerner tegnene fra selve fila, uten å dekke over noe.
+  Resten av linjen står der den stod, og bilder, streker og kommentarer
+  røres ikke. Ctrl+Z angrer til du lagrer.
+- Tekst som er tegnet som streker (vanlig i CAD-eksport), er ikke tekst og
+  kan ikke markeres.
+
 ### Signatur
 
 Trykk **Signer** (eller **N** mens du markerer). Første gang tegner du
@@ -313,6 +342,7 @@ at repoet er offentlig; ellers skjer det ingenting. Uten nett merkes den ikke.
 │   ├── measure-pdf.ts lagring av mål som PDF-kommentarer
 │   ├── markup.ts    markering: sky, pil, tekst og signatur
 │   ├── markup-pdf.ts lagring av markeringer som PDF-kommentarer, låsing av signaturer
+│   ├── textmenu.ts  høyreklikk på tekst: marker, understrek, gjennomstrek, slett
 │   ├── signature.ts tegning av signaturen, eller fra et bilde
 │   ├── snap.ts      snapping til streker i tegningen
 │   ├── present.ts   fullskjerm-presentasjon
