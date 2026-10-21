@@ -43,6 +43,13 @@ fn write_file(request: Request<'_>) -> Result<(), String> {
     })
 }
 
+/// Hvilke av filnavnene som allerede finnes i mappen `dir`.
+#[tauri::command]
+fn existing_files(dir: String, names: Vec<String>) -> Vec<String> {
+    let dir = Path::new(&dir);
+    names.into_iter().filter(|n| dir.join(n).exists()).collect()
+}
+
 /// Leser en fontfil fra Windows' fontmapper (for redigering av tekst med samme
 /// font som i PDF-en). Bare filnavn godtas, ikke stier.
 #[tauri::command]
@@ -172,7 +179,7 @@ pub fn run() {
                 *window.state::<Windows>().focused.lock().unwrap() = window.label().to_string();
             }
         })
-        .invoke_handler(tauri::generate_handler![read_file, write_file, startup_files, open_window, read_font, convert_office])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, existing_files, startup_files, open_window, read_font, convert_office])
         .run(tauri::generate_context!())
         .expect("ArkiPDF kunne ikke starte");
 }

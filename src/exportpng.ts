@@ -1,6 +1,6 @@
 // Eksport av sider til PNG-bilder.
 import { parsePageRange, renderPageToCanvas, type PDFDocumentProxy } from "./pdf";
-import { dirName, joinPath, pickFolder, writeFile } from "./platform";
+import { confirmDialog, dirName, existingFiles, joinPath, pickFolder, writeFile } from "./platform";
 import { busy, button, errorMessage, h, modal, nextFrame, toast } from "./ui";
 
 /** Største bilde per side (piksler); ca. 480 MB minne under tegning. */
@@ -45,6 +45,13 @@ export function openExportDialog(doc: PDFDocumentProxy, filePath: string, curren
     }
     const folder = await pickFolder("Velg mappe for PNG-filene", dirName(filePath) || undefined);
     if (folder === null) return;
+    const names = pages.map((idx) => pngName(filePath, idx, n));
+    const taken = await existingFiles(folder, names);
+    if (taken.length) {
+      const which = taken.length === 1 ? `${taken[0]} finnes` : `${taken.length} av filene finnes`;
+      const question = taken.length === 1 ? "Vil du overskrive den?" : "Vil du overskrive dem?";
+      if (!(await confirmDialog(`${which} allerede i ${folder}.\n\n${question}`, "Overskrive filer?"))) return;
+    }
     close();
     await exportPages(doc, filePath, pages, Number(dpi.value), folder);
   };
@@ -52,9 +59,14 @@ export function openExportDialog(doc: PDFDocumentProxy, filePath: string, curren
   const close = modal("Eksporter til PNG", body, [button("Avbryt", null, () => close()), button("Velg mappe og eksporter…", "image", () => void go(), { primary: true })]);
 }
 
-async function exportPages(doc: PDFDocumentProxy, filePath: string, pages: number[], dpi: number, folder: string): Promise<void> {
+/** Filnavnet siden `idx` får, f.eks. «rapport-side-03.png». */
+function pngName(filePath: string, idx: number, numPages: number): string {
   const stem = (filePath.split(/[\\/]/).pop() ?? "dokument").replace(/\.pdf$/i, "");
-  const digits = Math.max(2, String(doc.numPages).length);
+  const digits = Math.max(2, String(numPages).length);
+  return `${stem}-side-${String(idx + 1).padStart(digits, "0")}.png`;
+}
+
+async function exportPages(doc: PDFDocumentProxy, filePath: string, pages: number[], dpi: number, folder: string): Promise<void> {
   const b = busy("Eksporterer…");
   let written = 0;
   let lowestDpi = dpi;
@@ -73,8 +85,7 @@ async function exportPages(doc: PDFDocumentProxy, filePath: string, pages: numbe
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
       canvas.width = canvas.height = 0;
       if (!blob) throw new Error("Klarte ikke å lage bildet");
-      const name = `${stem}-side-${String(idx + 1).padStart(digits, "0")}.png`;
-      await writeFile(joinPath(folder, name), new Uint8Array(await blob.arrayBuffer()));
+      await writeFile(joinPath(folder, pngName(filePath, idx, doc.numPages)), new Uint8Array(await blob.arrayBuffer()));
       written++;
     }
     const saved = `${written} ${written === 1 ? "bilde" : "bilder"} lagret${folder ? ` i ${folder}` : ""}`;

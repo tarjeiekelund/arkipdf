@@ -133,6 +133,12 @@ export async function writeFile(path: string, bytes: Uint8Array): Promise<void> 
   await invoke("write_file", bytes, { headers: { path: encodeURIComponent(path) } });
 }
 
+/** Hvilke av filnavnene som allerede finnes i mappen (alltid ingen i nettleseren). */
+export async function existingFiles(dir: string, names: string[]): Promise<string[]> {
+  if (!isTauri || !names.length) return [];
+  return invoke<string[]>("existing_files", { dir, names });
+}
+
 export async function openFile(path: string): Promise<OpenedFile> {
   return { path, name: baseName(path), bytes: await readFile(path) };
 }
